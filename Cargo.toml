@@ -1,0 +1,30 @@
+[workspace]
+members = ["xtask"]
+
+[package]
+name = "glicol_verb"
+version = "0.1.0"
+edition = "2021"
+authors = ["GlicolVerb Authors"]
+license = "MIT OR Apache-2.0"
+description = "A live coding guitar pedal VST using Glicol"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+glicol = "0.13"
+ringbuf = "0.4"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
