@@ -28,3 +28,7 @@ strip = "symbols"
 inherits = "release"
 debug = true
 strip = "none"
+
+# Patch baseview to get macOS crash fix (PR #204)
+[patch."https://github.com/RustAudio/baseview.git"]
+baseview = { path = "vendor/baseview-latest" }

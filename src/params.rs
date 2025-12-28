@@ -70,7 +70,7 @@ impl Default for GlicolVerbParams {
             .with_string_to_value(formatters::s2v_f32_gain_to_db()),
 
             code: Arc::new(RwLock::new(
-                "~out: ~input".to_string()
+                "out: ~input >> plate 0.5".to_string()  // Plate reverb, 50% wet
             )),
         }
     }

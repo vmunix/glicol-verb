@@ -8,13 +8,19 @@ mod engine;
 mod messages;
 mod params;
 
-use engine::BufferBridge;
+use engine::{BufferBridge, GlicolWrapper};
 use messages::CodeMessage;
 use params::GlicolVerbParams;
+
+/// Maximum buffer size we expect from DAWs (most use 64-2048)
+const MAX_BUFFER_SIZE: usize = 4096;
 
 /// GlicolVerb - Live coding guitar pedal VST
 pub struct GlicolVerb {
     params: Arc<GlicolVerbParams>,
+
+    /// Glicol audio engine
+    engine: GlicolWrapper,
 
     /// Buffer bridge for DAW <-> Glicol block size conversion
     buffer_bridge: BufferBridge,
@@ -30,6 +36,9 @@ pub struct GlicolVerb {
 
     /// Sample rate from DAW
     sample_rate: f32,
+
+    /// Pre-allocated buffer for dry samples (avoids allocation in process())
+    dry_buffer: [f32; MAX_BUFFER_SIZE],
 }
 
 impl Default for GlicolVerb {
@@ -39,11 +48,13 @@ impl Default for GlicolVerb {
 
         Self {
             params: Arc::new(GlicolVerbParams::default()),
+            engine: GlicolWrapper::new(44100.0),
             buffer_bridge: BufferBridge::new(),
             code_receiver,
             code_sender: Some(code_sender),
-            current_code: "~out: ~input".to_string(),
+            current_code: "out: ~input >> plate 0.5".to_string(),  // Plate reverb, 50% wet
             sample_rate: 44100.0,
+            dry_buffer: [0.0; MAX_BUFFER_SIZE],
         }
     }
 }
@@ -96,8 +107,12 @@ impl Plugin for GlicolVerb {
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
 
+        // Configure engine for DAW sample rate
+        self.engine.set_sample_rate(buffer_config.sample_rate);
+
         // Initialize with code from params (for state restoration)
         self.current_code = self.params.code.read().clone();
+        let _ = self.engine.update_code(&self.current_code);
 
         true
     }
@@ -105,6 +120,7 @@ impl Plugin for GlicolVerb {
     fn reset(&mut self) {
         // Clear buffers on transport stop/start
         self.buffer_bridge.clear();
+        self.engine.reset();
     }
 
     fn process(
@@ -117,52 +133,97 @@ impl Plugin for GlicolVerb {
         while let Ok(msg) = self.code_receiver.try_recv() {
             match msg {
                 CodeMessage::UpdateCode(new_code) => {
-                    self.current_code = new_code;
-                    // TODO: Phase 2 - update Glicol engine here
+                    // Try to update the engine with new code
+                    if self.engine.update_code(&new_code).is_ok() {
+                        self.current_code = new_code;
+                    }
+                    // On error, old code keeps running
                 }
             }
         }
 
-        // Get gain parameters
-        let input_gain = self.params.input_gain.smoothed.next();
-        let output_gain = self.params.output_gain.smoothed.next();
-        let dry_wet = self.params.dry_wet.smoothed.next();
+        // Collect input samples and dry signal for mixing
+        let num_samples = buffer.samples();
+        let num_channels = buffer.channels();
 
-        // Phase 1: Simple pass-through with gain
-        // Phase 2 will add ring buffer -> Glicol processing
+        // Ensure we don't exceed our pre-allocated buffer
+        let num_samples = num_samples.min(MAX_BUFFER_SIZE);
 
-        for mut channel_samples in buffer.iter_samples() {
-            // Get input (mono - first channel, or average if stereo input)
-            let num_channels = channel_samples.len();
+        // Step 1: Push all input samples to the buffer bridge
+        for i in 0..num_samples {
+            let input_gain = self.params.input_gain.smoothed.next();
+
+            // Get mono input (average if stereo)
             let input_sample = if num_channels >= 2 {
-                // Average stereo to mono
-                let left = *channel_samples.get_mut(0).unwrap();
-                let right = *channel_samples.get_mut(1).unwrap();
+                let left = buffer.as_slice()[0][i];
+                let right = buffer.as_slice()[1][i];
                 (left + right) * 0.5
             } else {
-                *channel_samples.get_mut(0).unwrap()
+                buffer.as_slice()[0][i]
             };
 
-            // Apply input gain
             let input_with_gain = input_sample * input_gain;
+            self.dry_buffer[i] = input_with_gain;
 
-            // Store dry signal for mix
-            let dry_sample = input_with_gain;
+            self.buffer_bridge.push_input(input_with_gain);
+        }
 
-            // TODO Phase 2: Push to buffer bridge, process through Glicol
-            // For now, just pass through
-            let wet_sample = input_with_gain;
+        // Step 2: Process all available Glicol blocks
+        let mut blocks_processed = 0;
+        while self.buffer_bridge.has_block() {
+            let input_block = self.buffer_bridge.pop_input_block();
+            let (left, right) = self.engine.process(input_block);
+            self.buffer_bridge.push_output(left, right);
+            blocks_processed += 1;
+        }
+
+        // Debug: log every ~1 second (assuming 44100 Hz, ~344 calls at 128 samples)
+        static DEBUG_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let count = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 344 == 0 {
+            let input_max = self.dry_buffer[..num_samples].iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+            let output_avail = self.buffer_bridge.output_available();
+            eprintln!(
+                "[GlicolVerb] samples={}, blocks={}, input_max={:.4}, output_avail={}, code='{}'",
+                num_samples, blocks_processed, input_max, output_avail,
+                &self.current_code[..self.current_code.len().min(30)]
+            );
+        }
+
+        // Step 3: Pop output samples and write to DAW buffer
+        let output_slices = buffer.as_slice();
+        let mut wet_max: f32 = 0.0;
+        let mut out_max: f32 = 0.0;
+
+        for i in 0..num_samples {
+            let output_gain = self.params.output_gain.smoothed.next();
+            let dry_wet = self.params.dry_wet.smoothed.next();
+
+            // Get wet sample from Glicol output (may be 0 if buffer underrun)
+            let (wet_left, wet_right) = self.buffer_bridge.pop_output();
+            let dry = self.dry_buffer[i];
+
+            wet_max = wet_max.max(wet_left.abs()).max(wet_right.abs());
 
             // Mix dry/wet and apply output gain
-            let output_sample = (dry_sample * (1.0 - dry_wet) + wet_sample * dry_wet) * output_gain;
+            let out_left = (dry * (1.0 - dry_wet) + wet_left * dry_wet) * output_gain;
+            let out_right = (dry * (1.0 - dry_wet) + wet_right * dry_wet) * output_gain;
 
-            // Write to output (stereo)
-            if let Some(left) = channel_samples.get_mut(0) {
-                *left = output_sample;
+            out_max = out_max.max(out_left.abs()).max(out_right.abs());
+
+            // Write to output
+            output_slices[0][i] = out_left;
+            if num_channels >= 2 {
+                output_slices[1][i] = out_right;
             }
-            if let Some(right) = channel_samples.get_mut(1) {
-                *right = output_sample;
-            }
+        }
+
+        // Log output levels
+        if count % 344 == 1 {
+            eprintln!(
+                "[GlicolVerb] wet_max={:.4}, out_max={:.4}, dry_wet={:.2}",
+                wet_max, out_max, self.params.dry_wet.value()
+            );
         }
 
         ProcessStatus::Normal

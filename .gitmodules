@@ -1,0 +1,6 @@
+[submodule "vendor/glicol"]
+	path = vendor/glicol
+	url = https://github.com/chaosprint/glicol.git
+[submodule "vendor/baseview-latest"]
+	path = vendor/baseview-latest
+	url = https://github.com/RustAudio/baseview.git

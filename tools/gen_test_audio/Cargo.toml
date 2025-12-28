@@ -1,0 +1,9 @@
+[package]
+name = "gen_test_audio"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+hound = "3.5"

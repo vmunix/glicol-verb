@@ -6,15 +6,21 @@ use std::sync::Arc;
 use crate::messages::CodeMessage;
 use crate::params::GlicolVerbParams;
 
+// Note: params is captured in the closure but we use a local code_buffer for editing
+
 /// Create the plugin editor GUI
 pub fn create(
     params: Arc<GlicolVerbParams>,
     code_sender: Sender<CodeMessage>,
 ) -> Option<Box<dyn Editor>> {
+    // Get initial code from params
+    let initial_code = params.code.read().clone();
+
     create_egui_editor(
         params.editor_state.clone(),
         EditorState {
             code_sender,
+            code_buffer: initial_code,
             status_message: String::new(),
             status_is_error: false,
         },
@@ -24,7 +30,7 @@ pub fn create(
                 // Top bar: Update button and status
                 ui.horizontal(|ui| {
                     if ui.button("Update (Ctrl+Enter)").clicked() {
-                        send_code_update(&params, &state.code_sender, &mut state.status_message, &mut state.status_is_error);
+                        send_code_update_from_buffer(state);
                     }
 
                     ui.separator();
@@ -50,22 +56,25 @@ pub fn create(
                         egui::ScrollArea::vertical()
                             .max_height(ui.available_height() - 40.0)
                             .show(ui, |ui| {
-                                let mut code = params.code.write();
                                 let response = ui.add(
-                                    egui::TextEdit::multiline(&mut *code)
+                                    egui::TextEdit::multiline(&mut state.code_buffer)
                                         .font(egui::TextStyle::Monospace)
                                         .desired_width(editor_width - 20.0)
                                         .desired_rows(20)
-                                        .lock_focus(true),
+                                        .id(egui::Id::new("code_editor")),
                                 );
+
+                                // Request focus when clicked
+                                if response.clicked() {
+                                    response.request_focus();
+                                }
 
                                 // Ctrl+Enter to update
                                 if response.has_focus() {
                                     let modifiers = ui.input(|i| i.modifiers);
                                     let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
                                     if modifiers.ctrl && enter_pressed {
-                                        drop(code); // Release the lock before sending
-                                        send_code_update(&params, &state.code_sender, &mut state.status_message, &mut state.status_is_error);
+                                        send_code_update_from_buffer(state);
                                     }
                                 }
                             });
@@ -85,18 +94,36 @@ pub fn create(
                             ui.add(widgets::ParamSlider::for_param(&params.output_gain, setter));
                         });
 
-                        ui.add_space(20.0);
+                        ui.add_space(10.0);
+
+                        // Preset buttons (workaround for text input issues)
+                        ui.group(|ui| {
+                            ui.label("Presets");
+                            if ui.button("Pass-through").clicked() {
+                                state.code_buffer = "out: ~input".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Half volume").clicked() {
+                                state.code_buffer = "out: ~input >> mul 0.5".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Sine 440Hz").clicked() {
+                                state.code_buffer = "out: sin 440".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Delay").clicked() {
+                                state.code_buffer = "out: ~input >> delayms 250".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                        });
+
+                        ui.add_space(10.0);
 
                         // Help text
                         ui.group(|ui| {
                             ui.label("Quick Reference");
-                            ui.label("~out: output chain (required)");
-                            ui.label("~input: guitar input");
-                            ui.add_space(5.0);
-                            ui.label("Example effects:");
-                            ui.label("  ~out: ~input >> mul 0.5");
-                            ui.label("  ~out: ~input >> tanh");
-                            ui.label("  ~out: ~input >> delay 0.2");
+                            ui.label("out: output chain");
+                            ui.label("~input: audio input");
                         });
                     });
                 });
@@ -104,7 +131,7 @@ pub fn create(
                 // Bottom: Available variables reference
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Available: ~input, ~out");
+                    ui.label("Available: ~input | Output with: out:");
                 });
             });
         },
@@ -114,35 +141,29 @@ pub fn create(
 /// Editor state (not persisted)
 struct EditorState {
     code_sender: Sender<CodeMessage>,
+    code_buffer: String,  // Local copy for editing
     status_message: String,
     status_is_error: bool,
 }
 
 /// Send code update to the audio thread
-fn send_code_update(
-    params: &GlicolVerbParams,
-    code_sender: &Sender<CodeMessage>,
-    status_message: &mut String,
-    status_is_error: &mut bool,
-) {
-    let code = params.code.read().clone();
-
+fn send_code_update_from_buffer(state: &mut EditorState) {
     // Basic validation
-    if code.trim().is_empty() {
-        *status_message = "Error: Code cannot be empty".to_string();
-        *status_is_error = true;
+    if state.code_buffer.trim().is_empty() {
+        state.status_message = "Error: Code cannot be empty".to_string();
+        state.status_is_error = true;
         return;
     }
 
     // Send to audio thread
-    match code_sender.try_send(CodeMessage::UpdateCode(code)) {
+    match state.code_sender.try_send(CodeMessage::UpdateCode(state.code_buffer.clone())) {
         Ok(_) => {
-            *status_message = "Code sent for update...".to_string();
-            *status_is_error = false;
+            state.status_message = "Code updated!".to_string();
+            state.status_is_error = false;
         }
         Err(_) => {
-            *status_message = "Error: Message queue full".to_string();
-            *status_is_error = true;
+            state.status_message = "Error: Message queue full".to_string();
+            state.status_is_error = true;
         }
     }
 }

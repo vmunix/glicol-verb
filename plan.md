@@ -47,14 +47,14 @@ glicol-verb/
 **Files**: `Cargo.toml`, `src/lib.rs`, `src/params.rs`, `src/editor.rs`
 **Output**: `target/bundled/glicol_verb.vst3`, `target/bundled/glicol_verb.clap`
 
-### Phase 2: Glicol Integration
+### Phase 2: Glicol Integration ✅ COMPLETE
 **Goal**: Live coding works with basic code
 
-- [ ] Integrate `glicol::Engine<128>` with wrapper
-- [ ] Implement `BufferBridge` (DAW variable blocks → Glicol 128-sample blocks)
-- [ ] Add code sending from GUI → audio thread via ring buffer
-- [ ] Handle `~input` for live audio input
-- [ ] Test: `~out: ~input >> mul 0.5` should halve volume
+- [x] Integrate `glicol::Engine<128>` with wrapper
+- [x] Implement `BufferBridge` (DAW variable blocks → Glicol 128-sample blocks)
+- [x] Add code sending from GUI → audio thread via crossbeam channel
+- [x] Handle `~input` for live audio input
+- [x] Test: `~out: ~input >> mul 0.5` should halve volume
 
 **Files**: `src/engine/wrapper.rs`, `src/engine/buffer_bridge.rs`, `src/messages.rs`
 
@@ -103,10 +103,10 @@ DAW Output (variable size)
 GUI Thread                        Audio Thread
     │                                 │
     │  CodeMessage::UpdateCode(str)   │
-    │ ─────────────────────────────→  │  (lock-free ring buffer)
+    │ ─────────────────────────────→  │  (crossbeam bounded channel)
     │                                 │
     │  StatusMessage::Success/Error   │
-    │ ←─────────────────────────────  │  (lock-free ring buffer)
+    │ ←─────────────────────────────  │  (TODO: Phase 4)
     │                                 │
     │  Parameter values (Arc<Params>) │
     │ ←───────────────────────────→   │  (NIH-plug smoothed params)
@@ -138,7 +138,8 @@ ParamInjector prepends (when `drive = 2.0`):
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 glicol = "0.13"
-ringbuf = "0.3"
+ringbuf = "0.4"              # Lock-free ring buffers for audio
+crossbeam-channel = "0.5"    # Thread-safe channels for code messages
 parking_lot = "0.12"
 ```
 
@@ -150,11 +151,12 @@ parking_lot = "0.12"
 ```rust
 pub struct GlicolVerb {
     params: Arc<GlicolVerbParams>,
-    engine_wrapper: GlicolWrapper<128>,
+    engine: GlicolWrapper,
     buffer_bridge: BufferBridge,
-    param_injector: ParamInjector,
-    code_receiver: ringbuf::Consumer<CodeMessage>,
-    status_sender: ringbuf::Producer<StatusMessage>,
+    code_receiver: Receiver<CodeMessage>,  // crossbeam channel
+    code_sender: Option<Sender<CodeMessage>>,
+    current_code: String,
+    sample_rate: f32,
 }
 
 impl Plugin for GlicolVerb {
@@ -277,8 +279,8 @@ impl ParamInjector {
 
 ## Testing Checkpoints
 
-- [ ] Phase 1: Plugin loads in DAW, audio passes through
-- [ ] Phase 2: `~out: ~input >> mul 0.5` halves volume
+- [x] Phase 1: Plugin loads in DAW, audio passes through
+- [x] Phase 2: `~out: ~input >> mul 0.5` halves volume
 - [ ] Phase 3: Moving `drive` slider changes distortion in `~out: ~input >> mul ~drive >> tanh`
 - [ ] Phase 4: Save/reload project preserves code and parameters
 
