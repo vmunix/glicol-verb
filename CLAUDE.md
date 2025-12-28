@@ -28,6 +28,20 @@ cp -r target/bundled/glicol_verb.vst3 ~/Library/Audio/Plug-Ins/VST3/
 cp -r target/bundled/glicol_verb.clap ~/Library/Audio/Plug-Ins/CLAP/
 ```
 
+## Code Quality
+
+Run these checks before committing (enforced by pre-commit hook):
+
+```bash
+# Check formatting (fix with: cargo fmt)
+cargo fmt --check
+
+# Lint check (warnings treated as errors for our code)
+cargo clippy --package glicol_verb -- -D warnings
+```
+
+Note: Vendored dependencies (baseview, glicol) may emit warnings - these are expected and ignored by the pre-commit hook.
+
 ## Testing
 
 Testing requires a plugin host (no standalone mode). Use one of:

@@ -87,6 +87,7 @@ impl BufferBridge {
     }
 
     /// Push mono output (duplicated to stereo)
+    #[allow(dead_code)]
     pub fn push_output_mono(&mut self, samples: &[f32]) {
         for &sample in samples {
             let _ = self.output_left_producer.try_push(sample);
@@ -106,7 +107,9 @@ impl BufferBridge {
     /// Check how many output samples are available
     #[inline]
     pub fn output_available(&self) -> usize {
-        self.output_left_consumer.occupied_len().min(self.output_right_consumer.occupied_len())
+        self.output_left_consumer
+            .occupied_len()
+            .min(self.output_right_consumer.occupied_len())
     }
 
     /// Clear all buffers (call on reset)

@@ -72,7 +72,8 @@ pub fn create(
                                 // Ctrl+Enter to update
                                 if response.has_focus() {
                                     let modifiers = ui.input(|i| i.modifiers);
-                                    let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    let enter_pressed =
+                                        ui.input(|i| i.key_pressed(egui::Key::Enter));
                                     if modifiers.ctrl && enter_pressed {
                                         send_code_update_from_buffer(state);
                                     }
@@ -115,6 +116,12 @@ pub fn create(
                                 state.code_buffer = "out: ~input >> delayms 250".to_string();
                                 send_code_update_from_buffer(state);
                             }
+                            if ui.button("Guitar Amp").clicked() {
+                                state.code_buffer =
+                                    "out: ~input >> mul 2.5 >> lpf 3000.0 0.7 >> plate 0.3"
+                                        .to_string();
+                                send_code_update_from_buffer(state);
+                            }
                         });
 
                         ui.add_space(10.0);
@@ -141,7 +148,7 @@ pub fn create(
 /// Editor state (not persisted)
 struct EditorState {
     code_sender: Sender<CodeMessage>,
-    code_buffer: String,  // Local copy for editing
+    code_buffer: String, // Local copy for editing
     status_message: String,
     status_is_error: bool,
 }
@@ -156,7 +163,10 @@ fn send_code_update_from_buffer(state: &mut EditorState) {
     }
 
     // Send to audio thread
-    match state.code_sender.try_send(CodeMessage::UpdateCode(state.code_buffer.clone())) {
+    match state
+        .code_sender
+        .try_send(CodeMessage::UpdateCode(state.code_buffer.clone()))
+    {
         Ok(_) => {
             state.status_message = "Code updated!".to_string();
             state.status_is_error = false;

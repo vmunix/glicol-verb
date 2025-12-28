@@ -52,7 +52,7 @@ impl Default for GlicolVerb {
             buffer_bridge: BufferBridge::new(),
             code_receiver,
             code_sender: Some(code_sender),
-            current_code: "out: ~input >> plate 0.5".to_string(),  // Plate reverb, 50% wet
+            current_code: "out: ~input >> plate 0.5".to_string(), // Plate reverb, 50% wet
             sample_rate: 44100.0,
             dry_buffer: [0.0; MAX_BUFFER_SIZE],
         }
@@ -180,12 +180,18 @@ impl Plugin for GlicolVerb {
         // Debug: log every ~1 second (assuming 44100 Hz, ~344 calls at 128 samples)
         static DEBUG_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let count = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 344 == 0 {
-            let input_max = self.dry_buffer[..num_samples].iter().map(|x| x.abs()).fold(0.0f32, f32::max);
+        if count.is_multiple_of(344) {
+            let input_max = self.dry_buffer[..num_samples]
+                .iter()
+                .map(|x| x.abs())
+                .fold(0.0f32, f32::max);
             let output_avail = self.buffer_bridge.output_available();
             eprintln!(
                 "[GlicolVerb] samples={}, blocks={}, input_max={:.4}, output_avail={}, code='{}'",
-                num_samples, blocks_processed, input_max, output_avail,
+                num_samples,
+                blocks_processed,
+                input_max,
+                output_avail,
                 &self.current_code[..self.current_code.len().min(30)]
             );
         }
@@ -195,6 +201,7 @@ impl Plugin for GlicolVerb {
         let mut wet_max: f32 = 0.0;
         let mut out_max: f32 = 0.0;
 
+        #[allow(clippy::needless_range_loop)] // Index needed for multi-slice access
         for i in 0..num_samples {
             let output_gain = self.params.output_gain.smoothed.next();
             let dry_wet = self.params.dry_wet.smoothed.next();
@@ -222,7 +229,9 @@ impl Plugin for GlicolVerb {
         if count % 344 == 1 {
             eprintln!(
                 "[GlicolVerb] wet_max={:.4}, out_max={:.4}, dry_wet={:.2}",
-                wet_max, out_max, self.params.dry_wet.value()
+                wet_max,
+                out_max,
+                self.params.dry_wet.value()
             );
         }
 

@@ -21,7 +21,7 @@ impl GlicolWrapper {
         engine.set_bpm(120.0);
 
         // Initialize with plate reverb - no ~ prefix for output node!
-        let _ = engine.update_with_code("out: ~input >> plate 0.5");
+        engine.update_with_code("out: ~input >> plate 0.5");
 
         Self {
             engine,
@@ -56,7 +56,6 @@ impl GlicolWrapper {
     pub fn process(&mut self, input: &[f32]) -> (&[f32], &[f32]) {
         debug_assert_eq!(input.len(), GLICOL_BLOCK_SIZE);
 
-
         // Glicol expects Vec of channel slices for input
         // This small allocation (16 bytes) is unavoidable due to Glicol's API
         let (buffers, _status) = permit_alloc(|| {
@@ -87,7 +86,8 @@ impl GlicolWrapper {
         } else {
             // No output - fill with silence
             static ONCE_WARN: std::sync::Once = std::sync::Once::new();
-            ONCE_WARN.call_once(|| eprintln!("[GlicolVerb] WARNING: No buffers returned from Glicol!"));
+            ONCE_WARN
+                .call_once(|| eprintln!("[GlicolVerb] WARNING: No buffers returned from Glicol!"));
             self.left_buffer.fill(0.0);
             self.right_buffer.fill(0.0);
         }
