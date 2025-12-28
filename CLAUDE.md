@@ -28,6 +28,14 @@ cp -r target/bundled/glicol_verb.vst3 ~/Library/Audio/Plug-Ins/VST3/
 cp -r target/bundled/glicol_verb.clap ~/Library/Audio/Plug-Ins/CLAP/
 ```
 
+## Testing
+
+Testing requires a plugin host (no standalone mode). Use one of:
+- **Carla** (`brew install carla`) - lightweight plugin host
+- **REAPER** - full DAW, free to evaluate
+
+Load `target/bundled/glicol_verb.clap` or `.vst3` in the host.
+
 ## Architecture
 
 ### Thread Model

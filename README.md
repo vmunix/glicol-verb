@@ -16,6 +16,14 @@ cargo xtask bundle glicol_verb --release
 
 Outputs to `target/bundled/`.
 
+## Testing
+
+This plugin requires a host application (DAW or plugin host) for testing. Recommended options:
+- **Carla** (`brew install carla`) - lightweight open-source plugin host
+- **REAPER** - full DAW, free to evaluate
+
+Load `target/bundled/glicol_verb.clap` or `.vst3` in your host of choice.
+
 ## Docs
 
 - [spec.md](spec.md) - Design decisions and API reference
