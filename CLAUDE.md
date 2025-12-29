@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GlicolVerb is a live-coding guitar pedal VST3/CLAP plugin built with Rust. Users write Glicol DSP code in a text editor, click "Update", and the audio processing changes instantly without dropouts.
+GlicolVerb is a live-coding guitar pedal VST3 plugin built with Rust. Users write Glicol DSP code in a text editor, click "Update", and the audio processing changes instantly without dropouts.
 
-**Current Status**: Phase 3 complete (parameter injection with GUI sliders). Phase 4 pending (polish, error handling).
+**Current Status**: Phase 4A complete (DSP module framework with EQ and Delay). Collapsible accordion UI implemented.
 
 ## Build Commands
 
@@ -17,7 +17,7 @@ cargo build
 # Build release
 cargo build --release
 
-# Bundle VST3 and CLAP plugins (output: target/bundled/)
+# Bundle VST3 plugin (output: target/bundled/)
 cargo xtask bundle glicol_verb --release
 ```
 
@@ -25,7 +25,6 @@ cargo xtask bundle glicol_verb --release
 
 ```bash
 cp -r target/bundled/glicol_verb.vst3 ~/Library/Audio/Plug-Ins/VST3/
-cp -r target/bundled/glicol_verb.clap ~/Library/Audio/Plug-Ins/CLAP/
 ```
 
 ## Code Quality
@@ -48,7 +47,7 @@ Testing requires a plugin host (no standalone mode). Use one of:
 - **Carla** (`brew install carla`) - lightweight plugin host
 - **REAPER** - full DAW, free to evaluate
 
-Load `target/bundled/glicol_verb.clap` or `.vst3` in the host.
+Load `target/bundled/glicol_verb.vst3` in the host.
 
 **Test audio**: `test_audio/test_guitar.wav` - 5s Karplus-Strong synthesized guitar (E minor arpeggio).
 
@@ -61,10 +60,17 @@ Load `target/bundled/glicol_verb.clap` or `.vst3` in the host.
 
 ### Signal Flow
 ```
-DAW Input (variable buffer) → Input Ring Buffer → Glicol Engine (128 samples) → Output Ring Buffer → DAW Output
+DAW Input → Input Gain → EQ (3-band) → Glicol Engine → Delay → Dry/Wet Mix → Output Gain → DAW Output
 ```
 
 The `BufferBridge` in `src/engine/buffer_bridge.rs` handles the variable-to-fixed block size conversion required because DAWs use variable buffer sizes (64-512) but Glicol processes fixed 128-sample blocks.
+
+### DSP Module Framework
+Native Rust DSP modules in `src/dsp/` process audio before/after the Glicol engine:
+- **EQ** (`src/dsp/eq.rs`): 3-band parametric EQ (low shelf, mid peak, high shelf) using biquad filters
+- **Delay** (`src/dsp/delay.rs`): Stereo delay with feedback and high-cut filter
+
+All modules implement the `DspModule` trait with bypass support.
 
 ### Parameter Injection System (Phase 3)
 Users will reference named variables in Glicol code (`~drive`, `~knob1`). The `ParamInjector` (Phase 3) will prepend definitions based on slider values:
@@ -79,14 +85,17 @@ Users will reference named variables in Glicol code (`~drive`, `~knob1`). The `P
 |------|---------|
 | `src/lib.rs` | Plugin struct, NIH-plug trait impl, `process()` loop |
 | `src/params.rs` | `GlicolVerbParams` with `#[derive(Params)]`, persisted code string |
-| `src/editor.rs` | egui GUI with `create_egui_editor()`, code text field |
+| `src/editor.rs` | egui GUI with collapsible accordion sections |
+| `src/dsp/mod.rs` | `DspModule` trait and `StereoSample` type |
+| `src/dsp/eq.rs` | 3-band parametric EQ with biquad filters |
+| `src/dsp/delay.rs` | Stereo delay with feedback and high-cut |
 | `src/engine/wrapper.rs` | `GlicolWrapper` - safe abstraction over `glicol::Engine<128>` |
 | `src/engine/buffer_bridge.rs` | Ring buffers bridging DAW↔Glicol block sizes |
 | `src/messages.rs` | `CodeMessage` enum for GUI→Audio communication |
 
 ## Key Dependencies
 
-- **nih_plug**: VST3/CLAP plugin framework
+- **nih_plug**: VST3 plugin framework
 - **nih_plug_egui**: Immediate-mode GUI integration
 - **glicol**: Audio DSP engine with live code hot-swapping
 - **ringbuf**: Lock-free ring buffers for audio bridging

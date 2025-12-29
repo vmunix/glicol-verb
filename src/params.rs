@@ -56,6 +56,60 @@ pub struct GlicolVerbParams {
     #[id = "rate"]
     pub rate: FloatParam,
 
+    // === Delay Module Parameters ===
+    /// Delay bypass
+    #[id = "delay_bypass"]
+    pub delay_bypass: BoolParam,
+
+    /// Delay time in milliseconds
+    #[id = "delay_time"]
+    pub delay_time: FloatParam,
+
+    /// Delay feedback amount
+    #[id = "delay_feedback"]
+    pub delay_feedback: FloatParam,
+
+    /// Delay wet/dry mix
+    #[id = "delay_mix"]
+    pub delay_mix: FloatParam,
+
+    /// Delay high-cut filter frequency
+    #[id = "delay_highcut"]
+    pub delay_highcut: FloatParam,
+
+    // === EQ Module Parameters ===
+    /// EQ bypass
+    #[id = "eq_bypass"]
+    pub eq_bypass: BoolParam,
+
+    /// EQ low shelf frequency
+    #[id = "eq_low_freq"]
+    pub eq_low_freq: FloatParam,
+
+    /// EQ low shelf gain
+    #[id = "eq_low_gain"]
+    pub eq_low_gain: FloatParam,
+
+    /// EQ mid peak frequency
+    #[id = "eq_mid_freq"]
+    pub eq_mid_freq: FloatParam,
+
+    /// EQ mid peak gain
+    #[id = "eq_mid_gain"]
+    pub eq_mid_gain: FloatParam,
+
+    /// EQ mid peak Q
+    #[id = "eq_mid_q"]
+    pub eq_mid_q: FloatParam,
+
+    /// EQ high shelf frequency
+    #[id = "eq_high_freq"]
+    pub eq_high_freq: FloatParam,
+
+    /// EQ high shelf gain
+    #[id = "eq_high_gain"]
+    pub eq_high_gain: FloatParam,
+
     /// Persisted Glicol code (not a DAW automatable parameter)
     #[persist = "glicol-code"]
     pub code: Arc<RwLock<String>>,
@@ -163,8 +217,146 @@ impl Default for GlicolVerbParams {
             .with_unit(" Hz")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
+            // === Delay Module ===
+            delay_bypass: BoolParam::new("Delay Bypass", false),
+
+            delay_time: FloatParam::new(
+                "Delay Time",
+                250.0, // 250ms default
+                FloatRange::Skewed {
+                    min: 1.0,
+                    max: 2000.0,
+                    factor: FloatRange::skew_factor(-1.5), // More resolution at short delays
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(50.0))
+            .with_unit(" ms")
+            .with_value_to_string(formatters::v2s_f32_rounded(1)),
+
+            delay_feedback: FloatParam::new(
+                "Delay Feedback",
+                0.3,
+                FloatRange::Linear {
+                    min: 0.0,
+                    max: 0.95,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" %")
+            .with_value_to_string(formatters::v2s_f32_percentage(0))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            delay_mix: FloatParam::new("Delay Mix", 0.5, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_smoother(SmoothingStyle::Linear(10.0))
+                .with_unit(" %")
+                .with_value_to_string(formatters::v2s_f32_percentage(0))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            delay_highcut: FloatParam::new(
+                "Delay High-Cut",
+                12000.0,
+                FloatRange::Skewed {
+                    min: 1000.0,
+                    max: 20000.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(0)),
+
+            // === EQ Module ===
+            eq_bypass: BoolParam::new("EQ Bypass", false),
+
+            eq_low_freq: FloatParam::new(
+                "EQ Low Freq",
+                200.0,
+                FloatRange::Skewed {
+                    min: 20.0,
+                    max: 500.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(0)),
+
+            eq_low_gain: FloatParam::new(
+                "EQ Low Gain",
+                0.0,
+                FloatRange::Linear {
+                    min: -12.0,
+                    max: 12.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(1)),
+
+            eq_mid_freq: FloatParam::new(
+                "EQ Mid Freq",
+                1000.0,
+                FloatRange::Skewed {
+                    min: 200.0,
+                    max: 8000.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(0)),
+
+            eq_mid_gain: FloatParam::new(
+                "EQ Mid Gain",
+                0.0,
+                FloatRange::Linear {
+                    min: -12.0,
+                    max: 12.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(1)),
+
+            eq_mid_q: FloatParam::new(
+                "EQ Mid Q",
+                1.0,
+                FloatRange::Skewed {
+                    min: 0.5,
+                    max: 4.0,
+                    factor: FloatRange::skew_factor(-0.5),
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_value_to_string(formatters::v2s_f32_rounded(2)),
+
+            eq_high_freq: FloatParam::new(
+                "EQ High Freq",
+                4000.0,
+                FloatRange::Skewed {
+                    min: 2000.0,
+                    max: 20000.0,
+                    factor: FloatRange::skew_factor(-1.0),
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" Hz")
+            .with_value_to_string(formatters::v2s_f32_rounded(0)),
+
+            eq_high_gain: FloatParam::new(
+                "EQ High Gain",
+                0.0,
+                FloatRange::Linear {
+                    min: -12.0,
+                    max: 12.0,
+                },
+            )
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(1)),
+
             code: Arc::new(RwLock::new(
-                "out: ~input >> plate 0.5".to_string(), // Plate reverb, 50% wet
+                "out: ~input".to_string(), // Pass-through
             )),
         }
     }

@@ -70,141 +70,278 @@ pub fn create(
         },
         |_, _| {},
         move |egui_ctx, setter, state| {
-            // Right panel for parameters (fixed width)
-            egui::SidePanel::right("params_panel")
-                .resizable(false)
-                .default_width(300.0)
-                .show(egui_ctx, |ui| {
-                    ui.heading("Parameters");
+            egui::CentralPanel::default().show(egui_ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("GlicolVerb");
                     ui.separator();
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        // Core controls
-                        ui.group(|ui| {
-                            ui.label("Core");
+                    // === CORE MODULE (always expanded by default) ===
+                    egui::CollapsingHeader::new("Core")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
                             param_slider!(ui, setter, &params.dry_wet, 0.0..=1.0, "Dry/Wet");
-                            gain_slider!(ui, setter, &params.input_gain, "Input");
-                            gain_slider!(ui, setter, &params.output_gain, "Output");
+                            gain_slider!(ui, setter, &params.input_gain, "Input Gain");
+                            gain_slider!(ui, setter, &params.output_gain, "Output Gain");
+                            ui.add_space(4.0);
                         });
 
-                        ui.add_space(8.0);
+                    ui.add_space(4.0);
 
-                        // Mappable knobs
-                        ui.group(|ui| {
-                            ui.label("Knobs (~knob1-4)");
+                    // === EQ MODULE ===
+                    let eq_header = if params.eq_bypass.value() {
+                        "EQ  ○ Bypassed"
+                    } else {
+                        "EQ  ● Active"
+                    };
+                    egui::CollapsingHeader::new(eq_header)
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+
+                            // Bypass toggle
+                            ui.horizontal(|ui| {
+                                let bypass_text = if params.eq_bypass.value() {
+                                    "Enable"
+                                } else {
+                                    "Bypass"
+                                };
+                                if ui.button(bypass_text).clicked() {
+                                    let current = params.eq_bypass.value();
+                                    setter.begin_set_parameter(&params.eq_bypass);
+                                    setter.set_parameter(&params.eq_bypass, !current);
+                                    setter.end_set_parameter(&params.eq_bypass);
+                                }
+                            });
+
+                            ui.add_space(8.0);
+                            ui.label("Low Shelf");
+                            param_slider!(ui, setter, &params.eq_low_freq, 20.0..=500.0, "Freq");
+                            param_slider!(ui, setter, &params.eq_low_gain, -12.0..=12.0, "Gain dB");
+
+                            ui.add_space(8.0);
+                            ui.label("Mid Peak");
+                            param_slider!(ui, setter, &params.eq_mid_freq, 200.0..=8000.0, "Freq");
+                            param_slider!(ui, setter, &params.eq_mid_gain, -12.0..=12.0, "Gain dB");
+                            param_slider!(ui, setter, &params.eq_mid_q, 0.5..=4.0, "Q");
+
+                            ui.add_space(8.0);
+                            ui.label("High Shelf");
+                            param_slider!(
+                                ui,
+                                setter,
+                                &params.eq_high_freq,
+                                2000.0..=20000.0,
+                                "Freq"
+                            );
+                            param_slider!(
+                                ui,
+                                setter,
+                                &params.eq_high_gain,
+                                -12.0..=12.0,
+                                "Gain dB"
+                            );
+                            ui.add_space(4.0);
+                        });
+
+                    ui.add_space(4.0);
+
+                    // === DELAY MODULE ===
+                    let delay_header = if params.delay_bypass.value() {
+                        "Delay  ○ Bypassed"
+                    } else {
+                        "Delay  ● Active"
+                    };
+                    egui::CollapsingHeader::new(delay_header)
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+
+                            // Bypass toggle
+                            ui.horizontal(|ui| {
+                                let bypass_text = if params.delay_bypass.value() {
+                                    "Enable"
+                                } else {
+                                    "Bypass"
+                                };
+                                if ui.button(bypass_text).clicked() {
+                                    let current = params.delay_bypass.value();
+                                    setter.begin_set_parameter(&params.delay_bypass);
+                                    setter.set_parameter(&params.delay_bypass, !current);
+                                    setter.end_set_parameter(&params.delay_bypass);
+                                }
+                            });
+
+                            ui.add_space(8.0);
+                            param_slider!(ui, setter, &params.delay_time, 1.0..=2000.0, "Time ms");
+                            param_slider!(
+                                ui,
+                                setter,
+                                &params.delay_feedback,
+                                0.0..=0.95,
+                                "Feedback"
+                            );
+                            param_slider!(ui, setter, &params.delay_mix, 0.0..=1.0, "Mix");
+                            param_slider!(
+                                ui,
+                                setter,
+                                &params.delay_highcut,
+                                1000.0..=20000.0,
+                                "High Cut"
+                            );
+                            ui.add_space(4.0);
+                        });
+
+                    ui.add_space(4.0);
+
+                    // === CREATIVE ENGINE (Glicol + Knobs) ===
+                    egui::CollapsingHeader::new("Creative Engine")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+
+                            ui.label("Mappable Knobs (~knob1-4)");
                             param_slider!(ui, setter, &params.knob1, 0.0..=1.0, "Knob 1");
                             param_slider!(ui, setter, &params.knob2, 0.0..=1.0, "Knob 2");
                             param_slider!(ui, setter, &params.knob3, 0.0..=1.0, "Knob 3");
                             param_slider!(ui, setter, &params.knob4, 0.0..=1.0, "Knob 4");
+
+                            ui.add_space(8.0);
+                            ui.label("Effect Parameters");
+                            param_slider!(ui, setter, &params.drive, 1.0..=10.0, "Drive (~drive)");
+                            param_slider!(
+                                ui,
+                                setter,
+                                &params.feedback,
+                                0.0..=0.95,
+                                "Feedback (~feedback)"
+                            );
+                            param_slider!(ui, setter, &params.mix, 0.0..=1.0, "Mix (~mix)");
+                            param_slider!(ui, setter, &params.rate, 0.1..=20.0, "Rate Hz (~rate)");
+                            ui.add_space(4.0);
                         });
 
-                        ui.add_space(8.0);
+                    ui.add_space(4.0);
 
-                        // Effect parameters
-                        ui.group(|ui| {
-                            ui.label("Effects");
-                            param_slider!(ui, setter, &params.drive, 1.0..=10.0, "Drive");
-                            param_slider!(ui, setter, &params.feedback, 0.0..=0.95, "Feedback");
-                            param_slider!(ui, setter, &params.mix, 0.0..=1.0, "Mix");
-                            param_slider!(ui, setter, &params.rate, 0.1..=20.0, "Rate Hz");
+                    // === PRESETS ===
+                    egui::CollapsingHeader::new("Presets")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
+
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button("Pass-through").clicked() {
+                                    state.code_buffer = "out: ~input".to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                                if ui.button("Plate Reverb").clicked() {
+                                    state.code_buffer = "out: ~input >> plate 0.5".to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                                if ui.button("Overdrive").clicked() {
+                                    state.code_buffer =
+                                        "out: ~input >> mul ~drive >> lpf 4000.0 0.7".to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                            });
+
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button("Delay + Feedback").clicked() {
+                                    state.code_buffer =
+                                        "out: ~input >> delayms 250 >> mul ~feedback".to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                                if ui.button("Tremolo").clicked() {
+                                    state.code_buffer =
+                                        "out: ~input >> mul ~mod\n~mod: sin ~rate >> mul 0.5 >> add 0.5"
+                                            .to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                                if ui.button("Filter Sweep").clicked() {
+                                    state.code_buffer =
+                                        "out: ~input >> lpf ~freq 0.7\n~freq: sin ~rate >> mul 2000 >> add 2500"
+                                            .to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                            });
+
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.button("Guitar Amp").clicked() {
+                                    state.code_buffer =
+                                        "out: ~input >> mul ~drive >> lpf 3000.0 0.5 >> mul 0.7"
+                                            .to_string();
+                                    send_code_update_from_buffer(state);
+                                }
+                            });
+
+                            ui.add_space(4.0);
                         });
 
-                        ui.add_space(8.0);
-
-                        // Preset buttons
-                        ui.group(|ui| {
-                            ui.label("Presets");
-                            if ui.button("Pass-through").clicked() {
-                                state.code_buffer = "out: ~input".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Overdrive").clicked() {
-                                state.code_buffer =
-                                    "out: ~input >> mul ~drive >> lpf 4000.0 0.7".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Delay + Feedback").clicked() {
-                                state.code_buffer =
-                                    "out: ~input >> delayms 250 >> mul ~feedback".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Tremolo").clicked() {
-                                state.code_buffer =
-                                    "out: ~input >> mul ~mod\n~mod: sin ~rate >> mul 0.5 >> add 0.5"
-                                        .to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Filter Sweep").clicked() {
-                                state.code_buffer =
-                                    "out: ~input >> lpf ~freq 0.7\n~freq: sin ~rate >> mul 2000 >> add 2500"
-                                        .to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                        });
-                    });
-                });
-
-            // Bottom panel for variable reference
-            egui::TopBottomPanel::bottom("vars_panel")
-                .resizable(false)
-                .show(egui_ctx, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label("Variables:");
-                        ui.label("~input");
-                        ui.label("~knob1-4");
-                        ui.label("~drive");
-                        ui.label("~feedback");
-                        ui.label("~mix");
-                        ui.label("~rate");
-                        ui.separator();
-                        ui.label("Output: out:");
-                    });
-                });
-
-            // Central panel for code editor (fills remaining space)
-            egui::CentralPanel::default().show(egui_ctx, |ui| {
-                // Top bar: Update button and status
-                ui.horizontal(|ui| {
-                    if ui.button("Update (Ctrl+Enter)").clicked() {
-                        send_code_update_from_buffer(state);
-                    }
-
+                    ui.add_space(8.0);
                     ui.separator();
 
-                    // Status display
-                    if state.status_is_error {
-                        ui.colored_label(egui::Color32::RED, &state.status_message);
-                    } else if !state.status_message.is_empty() {
-                        ui.colored_label(egui::Color32::GREEN, &state.status_message);
-                    }
-                });
+                    // === GLICOL CODE EDITOR (collapsed by default) ===
+                    egui::CollapsingHeader::new("Glicol Code Editor")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add_space(4.0);
 
-                ui.separator();
-                ui.heading("Glicol Code");
+                            // Status and update button
+                            ui.horizontal(|ui| {
+                                if ui.button("Update (Ctrl+Enter)").clicked() {
+                                    send_code_update_from_buffer(state);
+                                }
 
-                // Code editor fills remaining space
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut state.code_buffer)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(20)
-                            .id(egui::Id::new("code_editor")),
-                    );
+                                ui.separator();
 
-                    // Request focus when clicked
-                    if response.clicked() {
-                        response.request_focus();
-                    }
+                                // Status display
+                                if state.status_is_error {
+                                    ui.colored_label(egui::Color32::RED, &state.status_message);
+                                } else if !state.status_message.is_empty() {
+                                    ui.colored_label(egui::Color32::GREEN, &state.status_message);
+                                }
+                            });
 
-                    // Ctrl+Enter to update
-                    if response.has_focus() {
-                        let modifiers = ui.input(|i| i.modifiers);
-                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if modifiers.ctrl && enter_pressed {
-                            send_code_update_from_buffer(state);
-                        }
-                    }
+                            ui.add_space(4.0);
+
+                            // Variable reference
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Variables:");
+                                ui.code("~input");
+                                ui.code("~knob1-4");
+                                ui.code("~drive");
+                                ui.code("~feedback");
+                                ui.code("~mix");
+                                ui.code("~rate");
+                            });
+
+                            ui.add_space(4.0);
+
+                            // Code editor
+                            let response = ui.add(
+                                egui::TextEdit::multiline(&mut state.code_buffer)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_width(f32::INFINITY)
+                                    .desired_rows(12)
+                                    .id(egui::Id::new("code_editor")),
+                            );
+
+                            // Request focus when clicked
+                            if response.clicked() {
+                                response.request_focus();
+                            }
+
+                            // Ctrl+Enter to update
+                            if response.has_focus() {
+                                let modifiers = ui.input(|i| i.modifiers);
+                                let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                if modifiers.ctrl && enter_pressed {
+                                    send_code_update_from_buffer(state);
+                                }
+                            }
+
+                            ui.add_space(4.0);
+                        });
                 });
             });
         },

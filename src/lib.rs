@@ -3,11 +3,15 @@ use nih_plug::prelude::*;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
+mod dsp;
 mod editor;
 mod engine;
 mod messages;
 mod params;
 
+use dsp::delay::Delay;
+use dsp::eq::Eq;
+use dsp::{DspModule, StereoSample};
 use engine::{BufferBridge, GlicolWrapper, ParamInjector};
 use messages::CodeMessage;
 use params::GlicolVerbParams;
@@ -24,6 +28,12 @@ pub struct GlicolVerb {
 
     /// Buffer bridge for DAW <-> Glicol block size conversion
     buffer_bridge: BufferBridge,
+
+    /// EQ module (pre-Glicol)
+    eq: Eq,
+
+    /// Delay module (post-Glicol)
+    delay: Delay,
 
     /// Receiver for code updates from GUI
     code_receiver: Receiver<CodeMessage>,
@@ -53,9 +63,11 @@ impl Default for GlicolVerb {
             params: Arc::new(GlicolVerbParams::default()),
             engine: GlicolWrapper::new(44100.0),
             buffer_bridge: BufferBridge::new(),
+            eq: Eq::new(44100.0),
+            delay: Delay::new(44100.0),
             code_receiver,
             code_sender: Some(code_sender),
-            user_code: "out: ~input >> plate 0.5".to_string(),
+            user_code: "out: ~input".to_string(),
             param_injector: ParamInjector::new(),
             sample_rate: 44100.0,
             dry_buffer: [0.0; MAX_BUFFER_SIZE],
@@ -74,6 +86,27 @@ impl GlicolVerb {
         self.param_injector.feedback = self.params.feedback.value();
         self.param_injector.mix = self.params.mix.value();
         self.param_injector.rate = self.params.rate.value();
+    }
+
+    /// Update delay module with current parameter values
+    fn update_delay_params(&mut self) {
+        self.delay.set_bypassed(self.params.delay_bypass.value());
+        self.delay.set_time_ms(self.params.delay_time.value());
+        self.delay.set_feedback(self.params.delay_feedback.value());
+        self.delay.set_mix(self.params.delay_mix.value());
+        self.delay.set_highcut(self.params.delay_highcut.value());
+    }
+
+    /// Update EQ module with current parameter values
+    fn update_eq_params(&mut self) {
+        self.eq.set_bypassed(self.params.eq_bypass.value());
+        self.eq.set_low_freq(self.params.eq_low_freq.value());
+        self.eq.set_low_gain(self.params.eq_low_gain.value());
+        self.eq.set_mid_freq(self.params.eq_mid_freq.value());
+        self.eq.set_mid_gain(self.params.eq_mid_gain.value());
+        self.eq.set_mid_q(self.params.eq_mid_q.value());
+        self.eq.set_high_freq(self.params.eq_high_freq.value());
+        self.eq.set_high_gain(self.params.eq_high_gain.value());
     }
 }
 
@@ -128,6 +161,12 @@ impl Plugin for GlicolVerb {
         // Configure engine for DAW sample rate
         self.engine.set_sample_rate(buffer_config.sample_rate);
 
+        // Configure DSP modules
+        self.eq.set_sample_rate(buffer_config.sample_rate);
+        self.update_eq_params();
+        self.delay.set_sample_rate(buffer_config.sample_rate);
+        self.update_delay_params();
+
         // Initialize with code from params (for state restoration)
         self.user_code = self.params.code.read().clone();
 
@@ -143,6 +182,8 @@ impl Plugin for GlicolVerb {
         // Clear buffers on transport stop/start
         self.buffer_bridge.clear();
         self.engine.reset();
+        self.eq.reset();
+        self.delay.reset();
     }
 
     fn process(
@@ -168,6 +209,10 @@ impl Plugin for GlicolVerb {
             }
         }
 
+        // Update DSP module parameters
+        self.update_eq_params();
+        self.update_delay_params();
+
         // Collect input samples and dry signal for mixing
         let num_samples = buffer.samples();
         let num_channels = buffer.channels();
@@ -175,7 +220,7 @@ impl Plugin for GlicolVerb {
         // Ensure we don't exceed our pre-allocated buffer
         let num_samples = num_samples.min(MAX_BUFFER_SIZE);
 
-        // Step 1: Push all input samples to the buffer bridge
+        // Step 1: Push all input samples to the buffer bridge (through EQ)
         for i in 0..num_samples {
             let input_gain = self.params.input_gain.smoothed.next();
 
@@ -189,9 +234,15 @@ impl Plugin for GlicolVerb {
             };
 
             let input_with_gain = input_sample * input_gain;
-            self.dry_buffer[i] = input_with_gain;
 
-            self.buffer_bridge.push_input(input_with_gain);
+            // Process through EQ (mono expanded to stereo, take left channel)
+            let eq_input = StereoSample::new(input_with_gain, input_with_gain);
+            let eq_output = self.eq.process_with_bypass(eq_input);
+            let eq_mono = eq_output.left; // EQ is stereo-linked, so left == right
+
+            self.dry_buffer[i] = eq_mono;
+
+            self.buffer_bridge.push_input(eq_mono);
         }
 
         // Step 2: Process all available Glicol blocks
@@ -234,13 +285,18 @@ impl Plugin for GlicolVerb {
 
             // Get wet sample from Glicol output (may be 0 if buffer underrun)
             let (wet_left, wet_right) = self.buffer_bridge.pop_output();
+
+            // Process through delay module (post-Glicol)
+            let glicol_out = StereoSample::new(wet_left, wet_right);
+            let delayed = self.delay.process_with_bypass(glicol_out);
+
             let dry = self.dry_buffer[i];
 
-            wet_max = wet_max.max(wet_left.abs()).max(wet_right.abs());
+            wet_max = wet_max.max(delayed.left.abs()).max(delayed.right.abs());
 
             // Mix dry/wet and apply output gain
-            let out_left = (dry * (1.0 - dry_wet) + wet_left * dry_wet) * output_gain;
-            let out_right = (dry * (1.0 - dry_wet) + wet_right * dry_wet) * output_gain;
+            let out_left = (dry * (1.0 - dry_wet) + delayed.left * dry_wet) * output_gain;
+            let out_right = (dry * (1.0 - dry_wet) + delayed.right * dry_wet) * output_gain;
 
             out_max = out_max.max(out_left.abs()).max(out_right.abs());
 
@@ -265,19 +321,6 @@ impl Plugin for GlicolVerb {
     }
 }
 
-impl ClapPlugin for GlicolVerb {
-    const CLAP_ID: &'static str = "com.glicolverb.glicolverb";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Live coding guitar pedal using Glicol");
-    const CLAP_MANUAL_URL: Option<&'static str> = None;
-    const CLAP_SUPPORT_URL: Option<&'static str> = None;
-    const CLAP_FEATURES: &'static [ClapFeature] = &[
-        ClapFeature::AudioEffect,
-        ClapFeature::Distortion,
-        ClapFeature::Filter,
-        ClapFeature::Delay,
-    ];
-}
-
 impl Vst3Plugin for GlicolVerb {
     const VST3_CLASS_ID: [u8; 16] = *b"GlicolVerb__0001";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
@@ -288,5 +331,4 @@ impl Vst3Plugin for GlicolVerb {
     ];
 }
 
-nih_export_clap!(GlicolVerb);
 nih_export_vst3!(GlicolVerb);
