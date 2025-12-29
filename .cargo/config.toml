@@ -1,2 +1,6 @@
 [alias]
 xtask = "run --package xtask --release --"
+
+# Silence warnings from vendored dependencies (baseview uses old objc macros)
+[build]
+rustflags = ["-Aunexpected_cfgs"]
