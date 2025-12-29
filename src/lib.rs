@@ -202,7 +202,9 @@ impl Plugin for GlicolVerb {
                     // Inject param definitions and try to update the engine
                     let injected_code = self.param_injector.inject(&new_code);
                     if self.engine.update_code(&injected_code).is_ok() {
-                        self.user_code = new_code;
+                        self.user_code = new_code.clone();
+                        // Update persisted code for state saving
+                        *self.params.code.write() = new_code;
                     }
                     // On error, old code keeps running
                 }

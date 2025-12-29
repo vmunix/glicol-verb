@@ -36,14 +36,147 @@ mod theme {
     pub const STATUS_ACTIVE: Color32 = Color32::from_rgb(80, 180, 120);
     pub const STATUS_BYPASS: Color32 = Color32::from_rgb(120, 120, 125);
     pub const STATUS_ERROR: Color32 = Color32::from_rgb(220, 100, 100);
+
+    // Recipe card colors
+    pub const CARD_BG: Color32 = Color32::from_rgb(42, 42, 46);
 }
+
+/// A recipe is a complete, educational effect with explanation
+struct Recipe {
+    icon: &'static str,
+    name: &'static str,
+    description: &'static str,
+    code: &'static str,
+    explanation: &'static str,
+}
+
+/// All available recipes
+const RECIPES: &[Recipe] = &[
+    Recipe {
+        icon: "🎸",
+        name: "Amp Sim",
+        description: "Drive + tone shaping",
+        code: "out: ~input >> mul ~drive >> lpf 3000.0 0.5",
+        explanation: "mul boosts signal (adds grit), lpf cuts harsh highs",
+    },
+    Recipe {
+        icon: "🌊",
+        name: "Tremolo",
+        description: "Pulsing volume effect",
+        code: "out: ~input >> mul ~lfo\n~lfo: sin ~rate >> mul 0.5 >> add 0.5",
+        explanation: "sin creates a wave, scaled to 0-1 so volume pulses smoothly",
+    },
+    Recipe {
+        icon: "🎚",
+        name: "Filter Sweep",
+        description: "Auto-wah effect",
+        code: "out: ~input >> lpf ~freq 0.7\n~freq: sin ~rate >> mul 2000.0 >> add 2500.0",
+        explanation: "Filter cutoff moves with a sine wave for sweeping wah sound",
+    },
+    Recipe {
+        icon: "🔊",
+        name: "Slapback",
+        description: "Quick doubling echo",
+        code: "out: ~input >> delayms 120.0 >> mul 0.6 >> add ~input",
+        explanation: "Short delay + dry signal = doubling effect (try 80-150ms)",
+    },
+    Recipe {
+        icon: "🏛",
+        name: "Plate Reverb",
+        description: "Classic plate space",
+        code: "out: ~input >> plate ~mix",
+        explanation: "Built-in plate algorithm. ~mix: 0=dry, 1=full reverb",
+    },
+    Recipe {
+        icon: "📼",
+        name: "Lo-Fi",
+        description: "Gritty retro tone",
+        code: "out: ~input >> mul 3.0 >> lpf 2000.0 0.5",
+        explanation: "Overdrive + aggressive filtering = vintage character",
+    },
+];
+
+/// A building block is a single node snippet users can insert
+struct BuildingBlock {
+    snippet: &'static str,
+    description: &'static str,
+}
+
+/// Building block categories
+struct BlockCategory {
+    name: &'static str,
+    blocks: &'static [BuildingBlock],
+}
+
+const BUILDING_BLOCKS: &[BlockCategory] = &[
+    BlockCategory {
+        name: "Filters",
+        blocks: &[
+            BuildingBlock {
+                snippet: "lpf 1000.0 0.7",
+                description: "Low-pass (cuts highs)",
+            },
+            BuildingBlock {
+                snippet: "hpf 200.0 0.7",
+                description: "High-pass (cuts lows)",
+            },
+            BuildingBlock {
+                snippet: "onepole 800.0",
+                description: "Smooth simple filter",
+            },
+        ],
+    },
+    BlockCategory {
+        name: "Modulation",
+        blocks: &[
+            BuildingBlock {
+                snippet: "sin ~rate",
+                description: "Sine LFO",
+            },
+            BuildingBlock {
+                snippet: "saw ~rate",
+                description: "Ramp LFO",
+            },
+            BuildingBlock {
+                snippet: "squ ~rate",
+                description: "Square LFO",
+            },
+        ],
+    },
+    BlockCategory {
+        name: "Time",
+        blocks: &[
+            BuildingBlock {
+                snippet: "delayms 250.0",
+                description: "Delay (ms)",
+            },
+            BuildingBlock {
+                snippet: "plate 0.5",
+                description: "Plate reverb",
+            },
+        ],
+    },
+    BlockCategory {
+        name: "Gain",
+        blocks: &[
+            BuildingBlock {
+                snippet: "mul 0.5",
+                description: "Multiply/volume",
+            },
+            BuildingBlock {
+                snippet: "add ~input",
+                description: "Mix signals",
+            },
+        ],
+    },
+];
 
 /// Helper macro to create a standard egui slider for a nih-plug parameter
 /// This works around ParamSlider not responding to mouse events on macOS
 macro_rules! param_slider {
     ($ui:expr, $setter:expr, $param:expr, $range:expr, $label:expr) => {{
         $ui.horizontal(|ui| {
-            ui.label($label);
+            ui.add_sized([70.0, 18.0], egui::Label::new($label));
             ui.add(
                 egui::Slider::from_get_set($range, |new_value| match new_value {
                     Some(v) => {
@@ -65,7 +198,7 @@ macro_rules! param_slider {
 macro_rules! gain_slider {
     ($ui:expr, $setter:expr, $param:expr, $label:expr) => {{
         $ui.horizontal(|ui| {
-            ui.label($label);
+            ui.add_sized([70.0, 18.0], egui::Label::new($label));
             ui.add(
                 egui::Slider::from_get_set(-30.0..=30.0, |new_value| match new_value {
                     Some(db) => {
@@ -210,6 +343,60 @@ fn styled_section<R>(
         .inner
 }
 
+/// Render a compact recipe button with hover tooltip
+fn recipe_chip(ui: &mut egui::Ui, recipe: &Recipe, state: &mut EditorState) {
+    let button_text = format!("{} {}", recipe.icon, recipe.name);
+    let tooltip = format!(
+        "{}\n\nCode:\n{}\n\n💡 {}",
+        recipe.description, recipe.code, recipe.explanation
+    );
+
+    let button = egui::Button::new(
+        egui::RichText::new(&button_text)
+            .color(theme::TEXT_BRIGHT)
+            .size(12.0),
+    )
+    .fill(theme::CARD_BG)
+    .corner_radius(egui::CornerRadius::same(4));
+
+    if ui.add(button).on_hover_text(&tooltip).clicked() {
+        state.code_buffer = recipe.code.to_string();
+        send_code_update_from_buffer(state);
+    }
+}
+
+/// Render the building blocks section with categories
+fn building_blocks_section(ui: &mut egui::Ui, state: &mut EditorState) {
+    for category in BUILDING_BLOCKS {
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(category.name)
+                .color(theme::ACCENT)
+                .small()
+                .strong(),
+        );
+        ui.horizontal_wrapped(|ui| {
+            for block in category.blocks {
+                let button =
+                    egui::Button::new(egui::RichText::new(block.snippet).monospace().size(10.0));
+                if ui.add(button).on_hover_text(block.description).clicked() {
+                    // Append to code with >> prefix if code isn't empty
+                    if state.code_buffer.trim().is_empty() {
+                        state.code_buffer = format!("out: ~input >> {}", block.snippet);
+                    } else if state.code_buffer.ends_with('\n') || state.code_buffer.ends_with(' ')
+                    {
+                        state.code_buffer.push_str(&format!(">> {}", block.snippet));
+                    } else {
+                        state
+                            .code_buffer
+                            .push_str(&format!(" >> {}", block.snippet));
+                    }
+                }
+            }
+        });
+    }
+}
+
 /// Create the plugin editor GUI
 pub fn create(
     params: Arc<GlicolVerbParams>,
@@ -222,7 +409,8 @@ pub fn create(
         params.editor_state.clone(),
         EditorState {
             code_sender,
-            code_buffer: initial_code,
+            code_buffer: initial_code.clone(),
+            last_synced_code: initial_code,
             status_message: String::new(),
             status_is_error: false,
         },
@@ -260,6 +448,13 @@ pub fn create(
             egui_ctx.set_visuals(visuals);
         },
         move |egui_ctx, setter, state| {
+            // Sync code_buffer with params if state was restored externally
+            let current_params_code = params.code.read().clone();
+            if current_params_code != state.last_synced_code {
+                state.code_buffer = current_params_code.clone();
+                state.last_synced_code = current_params_code;
+            }
+
             egui::CentralPanel::default().show(egui_ctx, |ui| {
                 // Styled header
                 ui.add_space(4.0);
@@ -278,176 +473,48 @@ pub fn create(
                 });
                 ui.add_space(8.0);
 
-                // Two-column layout: Controls (left) | Glicol Editor (right)
-                ui.columns(2, |columns| {
-                    // === LEFT COLUMN: DSP Controls ===
-                    egui::ScrollArea::vertical()
-                        .id_salt("left_scroll")
-                        .show(&mut columns[0], |ui| {
-                            // === CORE MODULE ===
-                            styled_section(ui, "Core", None, true, |ui| {
+                // Use columns with specific widths for asymmetric layout
+                let available_width = ui.available_width();
+                let left_width = 220.0;
+                let right_width = available_width - left_width - 40.0; // spacing + right margin
+
+                ui.horizontal(|ui| {
+                    // === LEFT: Controls (fixed width) ===
+                    ui.vertical(|ui| {
+                        ui.set_width(left_width);
+                        egui::Frame::new()
+                            .fill(theme::BG_SECTION)
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .inner_margin(egui::Margin::same(10))
+                            .show(ui, |ui| {
+                                // === CORE ===
+                                ui.label(
+                                    egui::RichText::new("CORE")
+                                        .color(theme::TEXT_NORMAL)
+                                        .strong(),
+                                );
                                 ui.add_space(4.0);
                                 param_slider!(ui, setter, &params.dry_wet, 0.0..=1.0, "Dry/Wet");
-                                gain_slider!(ui, setter, &params.input_gain, "Input Gain");
-                                gain_slider!(ui, setter, &params.output_gain, "Output Gain");
-                                ui.add_space(4.0);
-                            });
+                                gain_slider!(ui, setter, &params.input_gain, "Input");
+                                gain_slider!(ui, setter, &params.output_gain, "Output");
 
-                            // === EQ MODULE ===
-                            let eq_active = !params.eq_bypass.value();
-                            styled_section(ui, "EQ", Some(eq_active), false, |ui| {
-                                ui.add_space(4.0);
-                                ui.horizontal(|ui| {
-                                    let bypass_text = if params.eq_bypass.value() {
-                                        "Enable"
-                                    } else {
-                                        "Bypass"
-                                    };
-                                    if ui.button(bypass_text).clicked() {
-                                        let current = params.eq_bypass.value();
-                                        setter.begin_set_parameter(&params.eq_bypass);
-                                        setter.set_parameter(&params.eq_bypass, !current);
-                                        setter.end_set_parameter(&params.eq_bypass);
-                                    }
-                                });
-
+                                ui.add_space(12.0);
+                                ui.separator();
                                 ui.add_space(8.0);
+
+                                // === GLICOL PARAMETERS ===
                                 ui.label(
-                                    egui::RichText::new("Low Shelf").color(theme::TEXT_NORMAL),
+                                    egui::RichText::new("GLICOL").color(theme::ACCENT).strong(),
                                 );
-                                param_slider!(ui, setter, &params.eq_low_freq, 20.0..=500.0, "Freq");
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.eq_low_gain,
-                                    -12.0..=12.0,
-                                    "Gain dB"
-                                );
-
-                                ui.add_space(8.0);
-                                ui.label(egui::RichText::new("Mid Peak").color(theme::TEXT_NORMAL));
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.eq_mid_freq,
-                                    200.0..=8000.0,
-                                    "Freq"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.eq_mid_gain,
-                                    -12.0..=12.0,
-                                    "Gain dB"
-                                );
-                                param_slider!(ui, setter, &params.eq_mid_q, 0.5..=4.0, "Q");
-
-                                ui.add_space(8.0);
                                 ui.label(
-                                    egui::RichText::new("High Shelf").color(theme::TEXT_NORMAL),
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.eq_high_freq,
-                                    2000.0..=20000.0,
-                                    "Freq"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.eq_high_gain,
-                                    -12.0..=12.0,
-                                    "Gain dB"
-                                );
-                                ui.add_space(4.0);
-                            });
-
-                            // === DELAY MODULE ===
-                            let delay_active = !params.delay_bypass.value();
-                            styled_section(ui, "Delay", Some(delay_active), false, |ui| {
-                                ui.add_space(4.0);
-                                ui.horizontal(|ui| {
-                                    let bypass_text = if params.delay_bypass.value() {
-                                        "Enable"
-                                    } else {
-                                        "Bypass"
-                                    };
-                                    if ui.button(bypass_text).clicked() {
-                                        let current = params.delay_bypass.value();
-                                        setter.begin_set_parameter(&params.delay_bypass);
-                                        setter.set_parameter(&params.delay_bypass, !current);
-                                        setter.end_set_parameter(&params.delay_bypass);
-                                    }
-                                });
-
-                                ui.add_space(8.0);
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.delay_time,
-                                    1.0..=2000.0,
-                                    "Time ms"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.delay_feedback,
-                                    0.0..=0.95,
-                                    "Feedback"
-                                );
-                                param_slider!(ui, setter, &params.delay_mix, 0.0..=1.0, "Mix");
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.delay_highcut,
-                                    1000.0..=20000.0,
-                                    "High Cut"
-                                );
-                                ui.add_space(4.0);
-                            });
-
-                            // === GLICOL PARAMETERS ===
-                            styled_section(ui, "Glicol Parameters", None, true, |ui| {
-                                ui.add_space(4.0);
-                                ui.label(
-                                    egui::RichText::new("Use these in your Glicol code")
+                                    egui::RichText::new("Use in code")
                                         .color(theme::TEXT_DIM)
                                         .small(),
                                 );
                                 ui.add_space(4.0);
-
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.knob1,
-                                    0.0..=1.0,
-                                    "~knob1"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.knob2,
-                                    0.0..=1.0,
-                                    "~knob2"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.knob3,
-                                    0.0..=1.0,
-                                    "~knob3"
-                                );
-                                param_slider!(
-                                    ui,
-                                    setter,
-                                    &params.knob4,
-                                    0.0..=1.0,
-                                    "~knob4"
-                                );
-
-                                ui.add_space(8.0);
                                 param_slider!(ui, setter, &params.drive, 1.0..=10.0, "~drive");
+                                param_slider!(ui, setter, &params.rate, 0.1..=20.0, "~rate");
+                                param_slider!(ui, setter, &params.mix, 0.0..=1.0, "~mix");
                                 param_slider!(
                                     ui,
                                     setter,
@@ -455,147 +522,152 @@ pub fn create(
                                     0.0..=0.95,
                                     "~feedback"
                                 );
-                                param_slider!(ui, setter, &params.mix, 0.0..=1.0, "~mix");
-                                param_slider!(ui, setter, &params.rate, 0.1..=20.0, "~rate");
-                                ui.add_space(4.0);
                             });
-                        });
+                    });
 
-                    // === RIGHT COLUMN: Glicol Code Editor (emphasized) ===
-                    egui::ScrollArea::vertical()
-                        .id_salt("right_scroll")
-                        .show(&mut columns[1], |ui| {
-                            // Glicol editor panel with accent styling
-                            egui::Frame::new()
-                                .fill(theme::BG_SECTION)
-                                .corner_radius(egui::CornerRadius::same(6))
-                                .inner_margin(egui::Margin::same(12))
-                                .stroke(egui::Stroke::new(1.0, theme::ACCENT_DIM))
-                                .show(ui, |ui| {
-                                    // Header
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new("Glicol Code")
-                                                .color(theme::ACCENT)
-                                                .strong()
-                                                .size(16.0),
-                                        );
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if ui.button("Update").clicked() {
-                                                    send_code_update_from_buffer(state);
-                                                }
-                                                // Status display
-                                                if state.status_is_error {
-                                                    ui.colored_label(
-                                                        theme::STATUS_ERROR,
-                                                        &state.status_message,
-                                                    );
-                                                } else if !state.status_message.is_empty() {
-                                                    ui.colored_label(
-                                                        theme::STATUS_ACTIVE,
-                                                        &state.status_message,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
+                    ui.add_space(8.0);
 
-                                    ui.add_space(8.0);
-
-                                    // Code editor - takes most of the space
-                                    let response = ui.add(
-                                        egui::TextEdit::multiline(&mut state.code_buffer)
-                                            .font(egui::TextStyle::Monospace)
-                                            .desired_width(f32::INFINITY)
-                                            .desired_rows(18)
-                                            .id(egui::Id::new("code_editor")),
+                    // === RIGHT: Code Editor + Effects Lab (takes remaining space) ===
+                    ui.vertical(|ui| {
+                        ui.set_width(right_width);
+                        // Glicol editor panel with accent styling
+                        egui::Frame::new()
+                            .fill(theme::BG_SECTION)
+                            .corner_radius(egui::CornerRadius::same(6))
+                            .inner_margin(egui::Margin::same(12))
+                            .stroke(egui::Stroke::new(1.0, theme::ACCENT_DIM))
+                            .show(ui, |ui| {
+                                // Header
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("Glicol Code")
+                                            .color(theme::ACCENT)
+                                            .strong()
+                                            .size(16.0),
                                     );
-
-                                    if response.clicked() {
-                                        response.request_focus();
-                                    }
-
-                                    // Ctrl+Enter to update
-                                    if response.has_focus() {
-                                        let modifiers = ui.input(|i| i.modifiers);
-                                        let enter_pressed =
-                                            ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                        if modifiers.ctrl && enter_pressed {
-                                            send_code_update_from_buffer(state);
-                                        }
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Available variables reference
-                                    ui.horizontal_wrapped(|ui| {
-                                        ui.label(
-                                            egui::RichText::new("Variables:")
-                                                .color(theme::TEXT_DIM)
-                                                .small(),
-                                        );
-                                        ui.code("~input");
-                                        ui.code("~knob1-4");
-                                        ui.code("~drive");
-                                        ui.code("~feedback");
-                                        ui.code("~mix");
-                                        ui.code("~rate");
-                                    });
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui.button("Update").clicked() {
+                                                send_code_update_from_buffer(state);
+                                            }
+                                            if ui
+                                                .button("Reset")
+                                                .on_hover_text("Reset to passthrough (no effects)")
+                                                .clicked()
+                                            {
+                                                state.code_buffer = "out: ~input".to_string();
+                                                send_code_update_from_buffer(state);
+                                            }
+                                            // Status display
+                                            if state.status_is_error {
+                                                ui.colored_label(
+                                                    theme::STATUS_ERROR,
+                                                    &state.status_message,
+                                                );
+                                            } else if !state.status_message.is_empty() {
+                                                ui.colored_label(
+                                                    theme::STATUS_ACTIVE,
+                                                    &state.status_message,
+                                                );
+                                            }
+                                        },
+                                    );
                                 });
+
+                                ui.add_space(8.0);
+
+                                // Code editor - compact but functional
+                                let response = ui.add(
+                                    egui::TextEdit::multiline(&mut state.code_buffer)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(f32::INFINITY)
+                                        .desired_rows(5)
+                                        .id(egui::Id::new("code_editor")),
+                                );
+
+                                if response.clicked() {
+                                    response.request_focus();
+                                }
+
+                                // Ctrl+Enter to update
+                                if response.has_focus() {
+                                    let modifiers = ui.input(|i| i.modifiers);
+                                    let enter_pressed =
+                                        ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    if modifiers.ctrl && enter_pressed {
+                                        send_code_update_from_buffer(state);
+                                    }
+                                }
+
+                                ui.add_space(8.0);
+
+                                // Available variables reference
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("Variables:")
+                                            .color(theme::TEXT_DIM)
+                                            .small(),
+                                    );
+                                    ui.code("~input");
+                                    ui.code("~drive");
+                                    ui.code("~rate");
+                                    ui.code("~mix");
+                                    ui.code("~feedback");
+                                });
+                            });
+
+                        ui.add_space(8.0);
+
+                        // === EFFECTS LAB ===
+                        styled_section(ui, "Effects Lab", None, true, |ui| {
+                            ui.add_space(4.0);
+
+                            // Recipes section - compact chips
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("RECIPES")
+                                        .color(theme::TEXT_NORMAL)
+                                        .small()
+                                        .strong(),
+                                );
+                                ui.label(
+                                    egui::RichText::new("(click to load, hover for details)")
+                                        .color(theme::TEXT_DIM)
+                                        .small(),
+                                );
+                            });
+                            ui.add_space(4.0);
+
+                            // Recipe chips in a wrapping grid
+                            ui.horizontal_wrapped(|ui| {
+                                for recipe in RECIPES {
+                                    recipe_chip(ui, recipe, state);
+                                }
+                            });
 
                             ui.add_space(8.0);
 
-                            // === PRESETS (below editor) ===
-                            styled_section(ui, "Presets", None, true, |ui| {
-                                ui.add_space(4.0);
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui.button("Pass-through").clicked() {
-                                        state.code_buffer = "out: ~input".to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                    if ui.button("Plate Reverb").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> plate 0.5".to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                    if ui.button("Overdrive").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> mul ~drive >> lpf 4000.0 0.7"
-                                                .to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                    if ui.button("Tremolo").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> mul ~mod\n~mod: sin ~rate >> mul 0.5 >> add 0.5"
-                                                .to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                });
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui.button("Delay + FB").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> delayms 250 >> mul ~feedback"
-                                                .to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                    if ui.button("Filter Sweep").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> lpf ~freq 0.7\n~freq: sin ~rate >> mul 2000 >> add 2500"
-                                                .to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                    if ui.button("Guitar Amp").clicked() {
-                                        state.code_buffer =
-                                            "out: ~input >> mul ~drive >> lpf 3000.0 0.5 >> mul 0.7"
-                                                .to_string();
-                                        send_code_update_from_buffer(state);
-                                    }
-                                });
-                                ui.add_space(4.0);
+                            // Building blocks (expanded by default)
+                            egui::CollapsingHeader::new(
+                                egui::RichText::new("BUILDING BLOCKS")
+                                    .color(theme::TEXT_NORMAL)
+                                    .small()
+                                    .strong(),
+                            )
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new("Click to append to your code")
+                                        .color(theme::TEXT_DIM)
+                                        .small(),
+                                );
+                                building_blocks_section(ui, state);
                             });
+
+                            ui.add_space(4.0);
                         });
+                    });
                 });
             });
         },
@@ -605,7 +677,8 @@ pub fn create(
 /// Editor state (not persisted)
 struct EditorState {
     code_sender: Sender<CodeMessage>,
-    code_buffer: String, // Local copy for editing
+    code_buffer: String,      // Local copy for editing
+    last_synced_code: String, // Track what we last synced from params
     status_message: String,
     status_is_error: bool,
 }

@@ -1,15 +1,16 @@
 # GlicolVerb
 
-A live-coding guitar pedal VST3/CLAP plugin built with Rust. Write [Glicol](https://glicol.org) DSP code, click "Update", and hear changes instantly.
+A Glicol live-coding VST3/CLAP plugin built with Rust. Write [Glicol](https://glicol.org) DSP code, click "Update", and hear changes instantly.
 
-> **Note**: This is a hobby project for learning Rust and audio processing. Not intended for use yet!
+> **Note**: This is a hobby project for learning Rust and audio processing. Feedback is welcome, but know that it's
+very much a work in progress!
 
 ## Status
 
 Phase 2 complete - live coding with Glicol engine and GUI work! Try effects like:
 - `out: ~input >> mul 0.5` - halve volume
 - `out: ~input >> lpf 1000.0 1.0` - low-pass filter
-- `out: ~input >> plate 0.5` - plate reverb
+- `out: ~input >> plate 0.3` - plate reverb
 
 ## Build
 

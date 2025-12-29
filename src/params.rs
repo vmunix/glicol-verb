@@ -118,7 +118,7 @@ pub struct GlicolVerbParams {
 impl Default for GlicolVerbParams {
     fn default() -> Self {
         Self {
-            editor_state: EguiState::from_size(900, 600),
+            editor_state: EguiState::from_size(1000, 500),
 
             dry_wet: FloatParam::new(
                 "Dry/Wet",
