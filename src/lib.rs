@@ -8,7 +8,7 @@ mod engine;
 mod messages;
 mod params;
 
-use engine::{BufferBridge, GlicolWrapper};
+use engine::{BufferBridge, GlicolWrapper, ParamInjector};
 use messages::CodeMessage;
 use params::GlicolVerbParams;
 
@@ -31,8 +31,11 @@ pub struct GlicolVerb {
     /// Sender for code updates (given to GUI)
     code_sender: Option<Sender<CodeMessage>>,
 
-    /// Current Glicol code (updated from GUI)
-    current_code: String,
+    /// Raw user code (before param injection)
+    user_code: String,
+
+    /// Parameter injector for ~knob1, ~drive, etc.
+    param_injector: ParamInjector,
 
     /// Sample rate from DAW
     sample_rate: f32,
@@ -52,10 +55,25 @@ impl Default for GlicolVerb {
             buffer_bridge: BufferBridge::new(),
             code_receiver,
             code_sender: Some(code_sender),
-            current_code: "out: ~input >> plate 0.5".to_string(), // Plate reverb, 50% wet
+            user_code: "out: ~input >> plate 0.5".to_string(),
+            param_injector: ParamInjector::new(),
             sample_rate: 44100.0,
             dry_buffer: [0.0; MAX_BUFFER_SIZE],
         }
+    }
+}
+
+impl GlicolVerb {
+    /// Update param_injector with current parameter values
+    fn update_param_injector(&mut self) {
+        self.param_injector.knob1 = self.params.knob1.value();
+        self.param_injector.knob2 = self.params.knob2.value();
+        self.param_injector.knob3 = self.params.knob3.value();
+        self.param_injector.knob4 = self.params.knob4.value();
+        self.param_injector.drive = self.params.drive.value();
+        self.param_injector.feedback = self.params.feedback.value();
+        self.param_injector.mix = self.params.mix.value();
+        self.param_injector.rate = self.params.rate.value();
     }
 }
 
@@ -111,8 +129,12 @@ impl Plugin for GlicolVerb {
         self.engine.set_sample_rate(buffer_config.sample_rate);
 
         // Initialize with code from params (for state restoration)
-        self.current_code = self.params.code.read().clone();
-        let _ = self.engine.update_code(&self.current_code);
+        self.user_code = self.params.code.read().clone();
+
+        // Inject current param values and update engine
+        self.update_param_injector();
+        let injected_code = self.param_injector.inject(&self.user_code);
+        let _ = self.engine.update_code(&injected_code);
 
         true
     }
@@ -133,9 +155,13 @@ impl Plugin for GlicolVerb {
         while let Ok(msg) = self.code_receiver.try_recv() {
             match msg {
                 CodeMessage::UpdateCode(new_code) => {
-                    // Try to update the engine with new code
-                    if self.engine.update_code(&new_code).is_ok() {
-                        self.current_code = new_code;
+                    // Capture current param values for injection
+                    self.update_param_injector();
+
+                    // Inject param definitions and try to update the engine
+                    let injected_code = self.param_injector.inject(&new_code);
+                    if self.engine.update_code(&injected_code).is_ok() {
+                        self.user_code = new_code;
                     }
                     // On error, old code keeps running
                 }
@@ -192,7 +218,7 @@ impl Plugin for GlicolVerb {
                 blocks_processed,
                 input_max,
                 output_avail,
-                &self.current_code[..self.current_code.len().min(30)]
+                &self.user_code[..self.user_code.len().min(30)]
             );
         }
 

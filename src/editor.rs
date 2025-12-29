@@ -1,12 +1,56 @@
 use crossbeam_channel::Sender;
 use nih_plug::prelude::*;
-use nih_plug_egui::{create_egui_editor, egui, widgets};
+use nih_plug_egui::{create_egui_editor, egui};
 use std::sync::Arc;
 
 use crate::messages::CodeMessage;
 use crate::params::GlicolVerbParams;
 
-// Note: params is captured in the closure but we use a local code_buffer for editing
+/// Helper macro to create a standard egui slider for a nih-plug parameter
+/// This works around ParamSlider not responding to mouse events on macOS
+macro_rules! param_slider {
+    ($ui:expr, $setter:expr, $param:expr, $range:expr, $label:expr) => {{
+        $ui.horizontal(|ui| {
+            ui.label($label);
+            ui.add(
+                egui::Slider::from_get_set($range, |new_value| match new_value {
+                    Some(v) => {
+                        let v = v as f32;
+                        $setter.begin_set_parameter($param);
+                        $setter.set_parameter($param, v);
+                        $setter.end_set_parameter($param);
+                        v as f64
+                    }
+                    None => $param.value() as f64,
+                })
+                .show_value(true),
+            );
+        });
+    }};
+}
+
+/// Helper macro for dB gain parameters (need conversion)
+macro_rules! gain_slider {
+    ($ui:expr, $setter:expr, $param:expr, $label:expr) => {{
+        $ui.horizontal(|ui| {
+            ui.label($label);
+            ui.add(
+                egui::Slider::from_get_set(-30.0..=30.0, |new_value| match new_value {
+                    Some(db) => {
+                        let gain = util::db_to_gain(db as f32);
+                        $setter.begin_set_parameter($param);
+                        $setter.set_parameter($param, gain);
+                        $setter.end_set_parameter($param);
+                        db
+                    }
+                    None => util::gain_to_db($param.value()) as f64,
+                })
+                .suffix(" dB")
+                .show_value(true),
+            );
+        });
+    }};
+}
 
 /// Create the plugin editor GUI
 pub fn create(
@@ -26,6 +70,98 @@ pub fn create(
         },
         |_, _| {},
         move |egui_ctx, setter, state| {
+            // Right panel for parameters (fixed width)
+            egui::SidePanel::right("params_panel")
+                .resizable(false)
+                .default_width(300.0)
+                .show(egui_ctx, |ui| {
+                    ui.heading("Parameters");
+                    ui.separator();
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // Core controls
+                        ui.group(|ui| {
+                            ui.label("Core");
+                            param_slider!(ui, setter, &params.dry_wet, 0.0..=1.0, "Dry/Wet");
+                            gain_slider!(ui, setter, &params.input_gain, "Input");
+                            gain_slider!(ui, setter, &params.output_gain, "Output");
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Mappable knobs
+                        ui.group(|ui| {
+                            ui.label("Knobs (~knob1-4)");
+                            param_slider!(ui, setter, &params.knob1, 0.0..=1.0, "Knob 1");
+                            param_slider!(ui, setter, &params.knob2, 0.0..=1.0, "Knob 2");
+                            param_slider!(ui, setter, &params.knob3, 0.0..=1.0, "Knob 3");
+                            param_slider!(ui, setter, &params.knob4, 0.0..=1.0, "Knob 4");
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Effect parameters
+                        ui.group(|ui| {
+                            ui.label("Effects");
+                            param_slider!(ui, setter, &params.drive, 1.0..=10.0, "Drive");
+                            param_slider!(ui, setter, &params.feedback, 0.0..=0.95, "Feedback");
+                            param_slider!(ui, setter, &params.mix, 0.0..=1.0, "Mix");
+                            param_slider!(ui, setter, &params.rate, 0.1..=20.0, "Rate Hz");
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Preset buttons
+                        ui.group(|ui| {
+                            ui.label("Presets");
+                            if ui.button("Pass-through").clicked() {
+                                state.code_buffer = "out: ~input".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Overdrive").clicked() {
+                                state.code_buffer =
+                                    "out: ~input >> mul ~drive >> lpf 4000.0 0.7".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Delay + Feedback").clicked() {
+                                state.code_buffer =
+                                    "out: ~input >> delayms 250 >> mul ~feedback".to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Tremolo").clicked() {
+                                state.code_buffer =
+                                    "out: ~input >> mul ~mod\n~mod: sin ~rate >> mul 0.5 >> add 0.5"
+                                        .to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                            if ui.button("Filter Sweep").clicked() {
+                                state.code_buffer =
+                                    "out: ~input >> lpf ~freq 0.7\n~freq: sin ~rate >> mul 2000 >> add 2500"
+                                        .to_string();
+                                send_code_update_from_buffer(state);
+                            }
+                        });
+                    });
+                });
+
+            // Bottom panel for variable reference
+            egui::TopBottomPanel::bottom("vars_panel")
+                .resizable(false)
+                .show(egui_ctx, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Variables:");
+                        ui.label("~input");
+                        ui.label("~knob1-4");
+                        ui.label("~drive");
+                        ui.label("~feedback");
+                        ui.label("~mix");
+                        ui.label("~rate");
+                        ui.separator();
+                        ui.label("Output: out:");
+                    });
+                });
+
+            // Central panel for code editor (fills remaining space)
             egui::CentralPanel::default().show(egui_ctx, |ui| {
                 // Top bar: Update button and status
                 ui.horizontal(|ui| {
@@ -44,101 +180,31 @@ pub fn create(
                 });
 
                 ui.separator();
+                ui.heading("Glicol Code");
 
-                // Main layout: Editor on left, Parameters on right
-                ui.horizontal(|ui| {
-                    // Left: Code Editor (70% width)
-                    let editor_width = ui.available_width() * 0.7;
-                    ui.vertical(|ui| {
-                        ui.set_width(editor_width);
-                        ui.heading("Glicol Code");
+                // Code editor fills remaining space
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    let response = ui.add(
+                        egui::TextEdit::multiline(&mut state.code_buffer)
+                            .font(egui::TextStyle::Monospace)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(20)
+                            .id(egui::Id::new("code_editor")),
+                    );
 
-                        egui::ScrollArea::vertical()
-                            .max_height(ui.available_height() - 40.0)
-                            .show(ui, |ui| {
-                                let response = ui.add(
-                                    egui::TextEdit::multiline(&mut state.code_buffer)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(editor_width - 20.0)
-                                        .desired_rows(20)
-                                        .id(egui::Id::new("code_editor")),
-                                );
+                    // Request focus when clicked
+                    if response.clicked() {
+                        response.request_focus();
+                    }
 
-                                // Request focus when clicked
-                                if response.clicked() {
-                                    response.request_focus();
-                                }
-
-                                // Ctrl+Enter to update
-                                if response.has_focus() {
-                                    let modifiers = ui.input(|i| i.modifiers);
-                                    let enter_pressed =
-                                        ui.input(|i| i.key_pressed(egui::Key::Enter));
-                                    if modifiers.ctrl && enter_pressed {
-                                        send_code_update_from_buffer(state);
-                                    }
-                                }
-                            });
-                    });
-
-                    ui.separator();
-
-                    // Right: Parameter Panel (30% width)
-                    ui.vertical(|ui| {
-                        ui.heading("Parameters");
-
-                        // Core controls
-                        ui.group(|ui| {
-                            ui.label("Core");
-                            ui.add(widgets::ParamSlider::for_param(&params.dry_wet, setter));
-                            ui.add(widgets::ParamSlider::for_param(&params.input_gain, setter));
-                            ui.add(widgets::ParamSlider::for_param(&params.output_gain, setter));
-                        });
-
-                        ui.add_space(10.0);
-
-                        // Preset buttons (workaround for text input issues)
-                        ui.group(|ui| {
-                            ui.label("Presets");
-                            if ui.button("Pass-through").clicked() {
-                                state.code_buffer = "out: ~input".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Half volume").clicked() {
-                                state.code_buffer = "out: ~input >> mul 0.5".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Sine 440Hz").clicked() {
-                                state.code_buffer = "out: sin 440".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Delay").clicked() {
-                                state.code_buffer = "out: ~input >> delayms 250".to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                            if ui.button("Guitar Amp").clicked() {
-                                state.code_buffer =
-                                    "out: ~input >> mul 2.5 >> lpf 3000.0 0.7 >> plate 0.3"
-                                        .to_string();
-                                send_code_update_from_buffer(state);
-                            }
-                        });
-
-                        ui.add_space(10.0);
-
-                        // Help text
-                        ui.group(|ui| {
-                            ui.label("Quick Reference");
-                            ui.label("out: output chain");
-                            ui.label("~input: audio input");
-                        });
-                    });
-                });
-
-                // Bottom: Available variables reference
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("Available: ~input | Output with: out:");
+                    // Ctrl+Enter to update
+                    if response.has_focus() {
+                        let modifiers = ui.input(|i| i.modifiers);
+                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if modifiers.ctrl && enter_pressed {
+                            send_code_update_from_buffer(state);
+                        }
+                    }
                 });
             });
         },

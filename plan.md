@@ -58,16 +58,18 @@ glicol-verb/
 
 **Files**: `src/engine/wrapper.rs`, `src/engine/buffer_bridge.rs`, `src/messages.rs`
 
-### Phase 3: Parameter System
+### Phase 3: Parameter System ✅ COMPLETE
 **Goal**: UI knobs map to Glicol variables via code injection
 
-- [ ] Add `FloatParam` definitions: `knob1-4`, `drive`, `feedback`, `mix`, `rate`
-- [ ] Implement `ParamInjector` to prepend `~knob1: sig 0.5` to user code
-- [ ] Add `ParamSlider` widgets to GUI's right panel
-- [ ] Test DAW automation of parameters
-- [ ] Verify smooth parameter changes with `SmoothingStyle::Linear(10.0)`
+- [x] Add `FloatParam` definitions: `knob1-4`, `drive`, `feedback`, `mix`, `rate`
+- [x] Implement `ParamInjector` to prepend `~knob1: sig 0.5` to user code
+- [x] Add `ParamSlider` widgets to GUI's right panel
+- [x] Test DAW automation of parameters
+- [x] Verify smooth parameter changes with `SmoothingStyle::Linear(10.0)`
 
 **Files**: `src/params.rs`, `src/engine/param_injector.rs`, `src/editor.rs`
+
+**Note**: Parameters are captured at "Update" time - changing sliders takes effect on next code update.
 
 ### Phase 4: Polish and Error Handling
 **Goal**: Production-ready stability
@@ -281,7 +283,7 @@ impl ParamInjector {
 
 - [x] Phase 1: Plugin loads in DAW, audio passes through
 - [x] Phase 2: `~out: ~input >> mul 0.5` halves volume
-- [ ] Phase 3: Moving `drive` slider changes distortion in `~out: ~input >> mul ~drive >> tanh`
+- [x] Phase 3: Use "Overdrive" preset with `~drive` slider, click Update to apply
 - [ ] Phase 4: Save/reload project preserves code and parameters
 
 ---

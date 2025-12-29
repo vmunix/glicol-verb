@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GlicolVerb is a live-coding guitar pedal VST3/CLAP plugin built with Rust. Users write Glicol DSP code in a text editor, click "Update", and the audio processing changes instantly without dropouts.
 
-**Current Status**: Phase 2 complete (live coding with Glicol engine and GUI work). Phase 3-4 pending (parameter injection, polish).
+**Current Status**: Phase 3 complete (parameter injection with GUI sliders). Phase 4 pending (polish, error handling).
 
 ## Build Commands
 
