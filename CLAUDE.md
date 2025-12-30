@@ -179,7 +179,6 @@ Glicol lacks `tanh`/`clip` nodes. Options:
 
 ## Reference Documentation
 
-- `spec.md`: Design decisions, NIH-plug API reference
-- `plan.md`: Implementation phases, task checklists
+- `DEVELOPMENT.md`: Architecture deep-dive, API reference, future plans
 - `vendor/glicol/`: Glicol source code (submodule)
 - `vendor/glicol/js/src/glicol-api.json`: Complete node API reference
