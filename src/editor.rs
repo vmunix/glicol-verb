@@ -94,6 +94,42 @@ const RECIPES: &[Recipe] = &[
         code: "out: ~input >> mul 3.0 >> lpf 2000.0 0.5",
         explanation: "Overdrive + aggressive filtering = vintage character",
     },
+    Recipe {
+        icon: "🎵",
+        name: "Chorus",
+        description: "Shimmering doubled sound",
+        code: "out: ~input >> add ~chorus\n~chorus: ~input >> delayms ~mod >> mul 0.5\n~mod: sin ~rate >> mul 10.0 >> add 25.0",
+        explanation: "Modulated 15-35ms delay mixed with dry = lush doubling",
+    },
+    Recipe {
+        icon: "〰",
+        name: "Vibrato",
+        description: "Wobbly pitch modulation",
+        code: "out: ~input >> delayms ~mod\n~mod: sin ~rate >> mul 3.0 >> add 5.0",
+        explanation: "Delay time modulation creates pitch wobble (no dry mix)",
+    },
+    Recipe {
+        icon: "🔔",
+        name: "Ring Mod",
+        description: "Robotic/bell-like tones",
+        code: "out: ~input >> mul ~carrier\n~carrier: sin 200.0 >> mul 0.5 >> add 0.5",
+        explanation: "Multiplying by a carrier frequency creates metallic harmonics",
+    },
+    Recipe {
+        icon: "🌌",
+        name: "Ambient Wash",
+        description: "Atmospheric swells",
+        code: "out: ~input >> plate 0.6 >> delayms 400.0 >> mul 0.7 >> add ~input",
+        explanation: "Reverb into delay creates dreamy, evolving textures",
+    },
+    Recipe {
+        icon: "🌀",
+        name: "Phaser",
+        description: "Swirling phase sweep",
+        code: "out: ~dry >> add ~wet\n~dry: ~input >> mul 0.5\n~wet: ~input >> apfmsgain ~mod 0.7 >> mul 0.5\n~mod: sin ~rate >> mul 2.0 >> add 4.0",
+        explanation: "Allpass filter with modulated delay creates phase cancellation sweeps",
+    },
+    // Note: Bit Crusher using `meta` node crashes Glicol 0.13.5 - meta isn't fully implemented for ~input
 ];
 
 /// A building block is a single node snippet users can insert
@@ -186,31 +222,8 @@ macro_rules! param_slider {
                         $setter.end_set_parameter($param);
                         v as f64
                     }
-                    None => $param.value() as f64,
+                    None => $param.modulated_plain_value() as f64,
                 })
-                .show_value(true),
-            );
-        });
-    }};
-}
-
-/// Helper macro for dB gain parameters (need conversion)
-macro_rules! gain_slider {
-    ($ui:expr, $setter:expr, $param:expr, $label:expr) => {{
-        $ui.horizontal(|ui| {
-            ui.add_sized([70.0, 18.0], egui::Label::new($label));
-            ui.add(
-                egui::Slider::from_get_set(-30.0..=30.0, |new_value| match new_value {
-                    Some(db) => {
-                        let gain = util::db_to_gain(db as f32);
-                        $setter.begin_set_parameter($param);
-                        $setter.set_parameter($param, gain);
-                        $setter.end_set_parameter($param);
-                        db
-                    }
-                    None => util::gain_to_db($param.value()) as f64,
-                })
-                .suffix(" dB")
                 .show_value(true),
             );
         });
@@ -413,6 +426,14 @@ pub fn create(
             last_synced_code: initial_code,
             status_message: String::new(),
             status_is_error: false,
+            // Initialize EQ state from params
+            eq_low_freq: params.eq_low_freq.modulated_plain_value(),
+            eq_low_gain: params.eq_low_gain.modulated_plain_value(),
+            eq_mid_freq: params.eq_mid_freq.modulated_plain_value(),
+            eq_mid_gain: params.eq_mid_gain.modulated_plain_value(),
+            eq_mid_q: params.eq_mid_q.modulated_plain_value(),
+            eq_high_freq: params.eq_high_freq.modulated_plain_value(),
+            eq_high_gain: params.eq_high_gain.modulated_plain_value(),
         },
         |egui_ctx, _| {
             // Configure dark hardware theme
@@ -458,19 +479,11 @@ pub fn create(
             egui::CentralPanel::default().show(egui_ctx, |ui| {
                 // Styled header
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.heading(
-                        egui::RichText::new("GlicolVerb")
-                            .color(theme::ACCENT)
-                            .strong(),
-                    );
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("Live-coding guitar effects")
-                            .color(theme::TEXT_DIM)
-                            .italics(),
-                    );
-                });
+                ui.heading(
+                    egui::RichText::new("GlicolVerb")
+                        .color(theme::ACCENT)
+                        .strong(),
+                );
                 ui.add_space(8.0);
 
                 // Use columns with specific widths for asymmetric layout
@@ -487,21 +500,6 @@ pub fn create(
                             .corner_radius(egui::CornerRadius::same(6))
                             .inner_margin(egui::Margin::same(10))
                             .show(ui, |ui| {
-                                // === CORE ===
-                                ui.label(
-                                    egui::RichText::new("CORE")
-                                        .color(theme::TEXT_NORMAL)
-                                        .strong(),
-                                );
-                                ui.add_space(4.0);
-                                param_slider!(ui, setter, &params.dry_wet, 0.0..=1.0, "Dry/Wet");
-                                gain_slider!(ui, setter, &params.input_gain, "Input");
-                                gain_slider!(ui, setter, &params.output_gain, "Output");
-
-                                ui.add_space(12.0);
-                                ui.separator();
-                                ui.add_space(8.0);
-
                                 // === GLICOL PARAMETERS ===
                                 ui.label(
                                     egui::RichText::new("GLICOL").color(theme::ACCENT).strong(),
@@ -522,6 +520,220 @@ pub fn create(
                                     0.0..=0.95,
                                     "~feedback"
                                 );
+
+                                ui.add_space(12.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+
+                                // === CORE ===
+                                ui.label(
+                                    egui::RichText::new("CORE")
+                                        .color(theme::TEXT_NORMAL)
+                                        .strong(),
+                                );
+                                ui.add_space(4.0);
+                                param_slider!(ui, setter, &params.dry_wet, 0.0..=1.0, "Dry/Wet");
+
+                                ui.add_space(12.0);
+                                ui.separator();
+                                ui.add_space(8.0);
+
+                                // === EQ ===
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("EQ")
+                                            .color(theme::TEXT_NORMAL)
+                                            .strong(),
+                                    );
+                                    let bypass_text = if params.eq_bypass.value() {
+                                        "○"
+                                    } else {
+                                        "●"
+                                    };
+                                    let bypass_color = if params.eq_bypass.value() {
+                                        theme::STATUS_BYPASS
+                                    } else {
+                                        theme::STATUS_ACTIVE
+                                    };
+                                    if ui
+                                        .add(egui::Button::new(
+                                            egui::RichText::new(bypass_text).color(bypass_color),
+                                        ))
+                                        .on_hover_text("Toggle EQ bypass")
+                                        .clicked()
+                                    {
+                                        let new_val = !params.eq_bypass.value();
+                                        setter.begin_set_parameter(&params.eq_bypass);
+                                        setter.set_parameter(&params.eq_bypass, new_val);
+                                        setter.end_set_parameter(&params.eq_bypass);
+                                    }
+                                    if ui
+                                        .add(egui::Button::new(
+                                            egui::RichText::new("Reset")
+                                                .color(theme::TEXT_DIM)
+                                                .small(),
+                                        ))
+                                        .on_hover_text("Reset EQ to flat")
+                                        .clicked()
+                                    {
+                                        // Reset EQ state to defaults
+                                        state.eq_low_freq = 200.0;
+                                        state.eq_low_gain = 0.0;
+                                        state.eq_mid_freq = 1000.0;
+                                        state.eq_mid_gain = 0.0;
+                                        state.eq_mid_q = 1.0;
+                                        state.eq_high_freq = 4000.0;
+                                        state.eq_high_gain = 0.0;
+
+                                        // Sync to params
+                                        setter.begin_set_parameter(&params.eq_low_freq);
+                                        setter.set_parameter(&params.eq_low_freq, 200.0);
+                                        setter.end_set_parameter(&params.eq_low_freq);
+
+                                        setter.begin_set_parameter(&params.eq_low_gain);
+                                        setter.set_parameter(&params.eq_low_gain, 0.0);
+                                        setter.end_set_parameter(&params.eq_low_gain);
+
+                                        setter.begin_set_parameter(&params.eq_mid_freq);
+                                        setter.set_parameter(&params.eq_mid_freq, 1000.0);
+                                        setter.end_set_parameter(&params.eq_mid_freq);
+
+                                        setter.begin_set_parameter(&params.eq_mid_gain);
+                                        setter.set_parameter(&params.eq_mid_gain, 0.0);
+                                        setter.end_set_parameter(&params.eq_mid_gain);
+
+                                        setter.begin_set_parameter(&params.eq_mid_q);
+                                        setter.set_parameter(&params.eq_mid_q, 1.0);
+                                        setter.end_set_parameter(&params.eq_mid_q);
+
+                                        setter.begin_set_parameter(&params.eq_high_freq);
+                                        setter.set_parameter(&params.eq_high_freq, 4000.0);
+                                        setter.end_set_parameter(&params.eq_high_freq);
+
+                                        setter.begin_set_parameter(&params.eq_high_gain);
+                                        setter.set_parameter(&params.eq_high_gain, 0.0);
+                                        setter.end_set_parameter(&params.eq_high_gain);
+                                    }
+                                });
+                                ui.add_space(4.0);
+
+                                // Helper to format frequency
+                                let fmt_freq = |v: f32| -> String {
+                                    if v >= 1000.0 {
+                                        format!("{:.1}k", v / 1000.0)
+                                    } else {
+                                        format!("{:.0}", v)
+                                    }
+                                };
+
+                                // Low shelf
+                                ui.label(egui::RichText::new("Low").color(theme::TEXT_DIM).small());
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Freq"));
+                                    let old_val = state.eq_low_freq;
+                                    let slider =
+                                        egui::Slider::new(&mut state.eq_low_freq, 20.0..=500.0)
+                                            .custom_formatter(|v, _| fmt_freq(v as f32));
+                                    if ui.add(slider).changed() && state.eq_low_freq != old_val {
+                                        setter.begin_set_parameter(&params.eq_low_freq);
+                                        setter
+                                            .set_parameter(&params.eq_low_freq, state.eq_low_freq);
+                                        setter.end_set_parameter(&params.eq_low_freq);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Gain"));
+                                    let old_val = state.eq_low_gain;
+                                    let slider =
+                                        egui::Slider::new(&mut state.eq_low_gain, -12.0..=12.0)
+                                            .custom_formatter(|v, _| format!("{:+.1}", v));
+                                    if ui.add(slider).changed() && state.eq_low_gain != old_val {
+                                        setter.begin_set_parameter(&params.eq_low_gain);
+                                        setter
+                                            .set_parameter(&params.eq_low_gain, state.eq_low_gain);
+                                        setter.end_set_parameter(&params.eq_low_gain);
+                                    }
+                                });
+
+                                ui.add_space(4.0);
+
+                                // Mid peak
+                                ui.label(egui::RichText::new("Mid").color(theme::TEXT_DIM).small());
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Freq"));
+                                    let old_val = state.eq_mid_freq;
+                                    let slider =
+                                        egui::Slider::new(&mut state.eq_mid_freq, 200.0..=8000.0)
+                                            .custom_formatter(|v, _| fmt_freq(v as f32));
+                                    if ui.add(slider).changed() && state.eq_mid_freq != old_val {
+                                        setter.begin_set_parameter(&params.eq_mid_freq);
+                                        setter
+                                            .set_parameter(&params.eq_mid_freq, state.eq_mid_freq);
+                                        setter.end_set_parameter(&params.eq_mid_freq);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Gain"));
+                                    let old_val = state.eq_mid_gain;
+                                    let slider =
+                                        egui::Slider::new(&mut state.eq_mid_gain, -12.0..=12.0)
+                                            .custom_formatter(|v, _| format!("{:+.1}", v));
+                                    if ui.add(slider).changed() && state.eq_mid_gain != old_val {
+                                        setter.begin_set_parameter(&params.eq_mid_gain);
+                                        setter
+                                            .set_parameter(&params.eq_mid_gain, state.eq_mid_gain);
+                                        setter.end_set_parameter(&params.eq_mid_gain);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Q"));
+                                    let old_val = state.eq_mid_q;
+                                    let slider = egui::Slider::new(&mut state.eq_mid_q, 0.5..=4.0);
+                                    if ui.add(slider).changed() && state.eq_mid_q != old_val {
+                                        setter.begin_set_parameter(&params.eq_mid_q);
+                                        setter.set_parameter(&params.eq_mid_q, state.eq_mid_q);
+                                        setter.end_set_parameter(&params.eq_mid_q);
+                                    }
+                                });
+
+                                ui.add_space(4.0);
+
+                                // High shelf
+                                ui.label(
+                                    egui::RichText::new("High").color(theme::TEXT_DIM).small(),
+                                );
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Freq"));
+                                    let old_val = state.eq_high_freq;
+                                    let slider = egui::Slider::new(
+                                        &mut state.eq_high_freq,
+                                        2000.0..=20000.0,
+                                    )
+                                    .custom_formatter(|v, _| fmt_freq(v as f32));
+                                    if ui.add(slider).changed() && state.eq_high_freq != old_val {
+                                        setter.begin_set_parameter(&params.eq_high_freq);
+                                        setter.set_parameter(
+                                            &params.eq_high_freq,
+                                            state.eq_high_freq,
+                                        );
+                                        setter.end_set_parameter(&params.eq_high_freq);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([70.0, 18.0], egui::Label::new("Gain"));
+                                    let old_val = state.eq_high_gain;
+                                    let slider =
+                                        egui::Slider::new(&mut state.eq_high_gain, -12.0..=12.0)
+                                            .custom_formatter(|v, _| format!("{:+.1}", v));
+                                    if ui.add(slider).changed() && state.eq_high_gain != old_val {
+                                        setter.begin_set_parameter(&params.eq_high_gain);
+                                        setter.set_parameter(
+                                            &params.eq_high_gain,
+                                            state.eq_high_gain,
+                                        );
+                                        setter.end_set_parameter(&params.eq_high_gain);
+                                    }
+                                });
                             });
                     });
 
@@ -681,6 +893,14 @@ struct EditorState {
     last_synced_code: String, // Track what we last synced from params
     status_message: String,
     status_is_error: bool,
+    // EQ state - stored locally for immediate UI updates
+    eq_low_freq: f32,
+    eq_low_gain: f32,
+    eq_mid_freq: f32,
+    eq_mid_gain: f32,
+    eq_mid_q: f32,
+    eq_high_freq: f32,
+    eq_high_gain: f32,
 }
 
 /// Validate Glicol code before sending

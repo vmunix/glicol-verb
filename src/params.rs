@@ -284,9 +284,11 @@ impl Default for GlicolVerbParams {
             eq_low_gain: FloatParam::new(
                 "EQ Low Gain",
                 0.0,
-                FloatRange::Linear {
+                FloatRange::SymmetricalSkewed {
                     min: -12.0,
                     max: 12.0,
+                    factor: FloatRange::skew_factor(-1.0), // More resolution near 0 dB
+                    center: 0.0,
                 },
             )
             .with_smoother(SmoothingStyle::Linear(10.0))
@@ -309,9 +311,11 @@ impl Default for GlicolVerbParams {
             eq_mid_gain: FloatParam::new(
                 "EQ Mid Gain",
                 0.0,
-                FloatRange::Linear {
+                FloatRange::SymmetricalSkewed {
                     min: -12.0,
                     max: 12.0,
+                    factor: FloatRange::skew_factor(-1.0), // More resolution near 0 dB
+                    center: 0.0,
                 },
             )
             .with_smoother(SmoothingStyle::Linear(10.0))
@@ -346,9 +350,11 @@ impl Default for GlicolVerbParams {
             eq_high_gain: FloatParam::new(
                 "EQ High Gain",
                 0.0,
-                FloatRange::Linear {
+                FloatRange::SymmetricalSkewed {
                     min: -12.0,
                     max: 12.0,
+                    factor: FloatRange::skew_factor(-1.0), // More resolution near 0 dB
+                    center: 0.0,
                 },
             )
             .with_smoother(SmoothingStyle::Linear(10.0))
