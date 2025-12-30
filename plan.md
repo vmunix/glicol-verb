@@ -25,8 +25,11 @@ glicol-verb/
 │   │   ├── wrapper.rs      # GlicolWrapper - safe abstraction over Engine
 │   │   ├── buffer_bridge.rs # Ring buffers: DAW variable → Glicol fixed 128
 │   │   └── param_injector.rs # Inject ~knob1 values into code strings
-│   ├── messages.rs         # CodeMessage, StatusMessage types
-│   └── state.rs            # Serializable plugin state
+│   ├── dsp/
+│   │   ├── mod.rs          # DspModule trait and StereoSample type
+│   │   ├── eq.rs           # 3-band parametric EQ (biquad filters)
+│   │   └── delay.rs        # Stereo delay with feedback and high-cut
+│   └── messages.rs         # CodeMessage, StatusMessage types
 └── bundled/                # Built plugin output
 ```
 
@@ -71,14 +74,27 @@ glicol-verb/
 
 **Note**: Parameters are captured at "Update" time - changing sliders takes effect on next code update.
 
-### Phase 4: Polish and Error Handling
+### Phase 4A: DSP Module Framework ✅ COMPLETE
+**Goal**: Native Rust DSP processing before/after Glicol engine
+
+- [x] Create `DspModule` trait with `process()` and bypass support
+- [x] Implement 3-band parametric EQ (low shelf, mid peak, high shelf)
+- [x] Implement stereo delay with feedback and high-cut filter
+- [x] Add EQ/Delay parameters to `GlicolVerbParams`
+- [x] Integrate modules into signal chain: Input → EQ → Glicol → Delay → Output
+- [x] Add collapsible accordion UI sections for DSP modules
+- [x] Dark hardware theme with two-column layout
+
+**Files**: `src/dsp/mod.rs`, `src/dsp/eq.rs`, `src/dsp/delay.rs`, `src/params.rs`, `src/editor.rs`
+
+### Phase 4B: Polish and Error Handling ✅ COMPLETE
 **Goal**: Production-ready stability
 
-- [ ] Add code validation (check for `~out:`, warn if no `~input`)
-- [ ] Implement status messages (success/error feedback in GUI)
-- [ ] Handle buffer underrun gracefully (output silence, report)
-- [ ] Add help text showing available variables
-- [ ] Test state persistence (save/load DAW project)
+- [x] Add code validation (check for `out:`, warn if no `~input`)
+- [x] Implement status messages (success/error feedback in GUI)
+- [x] Handle buffer underrun gracefully (output silence, report)
+- [x] Add help text showing available variables
+- [x] Test state persistence (save/load DAW project)
 
 **Files**: All files, focus on `src/engine/wrapper.rs`, `src/editor.rs`
 
@@ -88,7 +104,11 @@ glicol-verb/
 
 ### Signal Flow
 ```
-DAW Input (variable: 64-512 samples)
+DAW Input (variable: 64-512 samples, mono)
+    ↓
+Input Gain
+    ↓
+EQ Module (3-band: low shelf, mid peak, high shelf)
     ↓
 Input Ring Buffer (2048 samples)
     ↓
@@ -97,7 +117,13 @@ Input Ring Buffer (2048 samples)
     ↓
 Output Ring Buffer (stereo, 2048 each)
     ↓
-DAW Output (variable size)
+Delay Module (stereo, with feedback + high-cut)
+    ↓
+Dry/Wet Mix
+    ↓
+Output Gain
+    ↓
+DAW Output (variable size, stereo)
 ```
 
 ### Thread Communication
@@ -228,28 +254,38 @@ impl ParamInjector {
 
 ## GUI Layout
 
+Two-column layout with dark hardware theme:
+
 ```
 +------------------------------------------------------------------+
-|  [Update]  | Status: OK / Error: syntax error at line 3          |
+| GlicolVerb    Live-coding guitar effects                          |
 +------------------------------------------------------------------+
-|                                    |                             |
-|  Code Editor (70%)                 |  Parameters (30%)           |
-|  +--------------------------+      |  +----------------------+   |
-|  | ~out: ~input             |      |  | Core                 |   |
-|  |   >> mul ~drive          |      |  |   Dry/Wet   [====]   |   |
-|  |   >> tanh                |      |  |   Input Gain [===]   |   |
-|  |   >> delay 0.3           |      |  |   Output Gain [==]   |   |
-|  |   >> mul ~feedback       |      |  +----------------------+   |
-|  |                          |      |  | Mappable (~knob1-4)  |   |
-|  +--------------------------+      |  |   Knob 1-4 sliders   |   |
-|                                    |  +----------------------+   |
-|                                    |  | Effects              |   |
-|                                    |  |   Drive, Feedback,   |   |
-|                                    |  |   Mix, Rate sliders  |   |
-+------------------------------------------------------------------+
-| Available: ~input, ~knob1-4, ~drive, ~feedback, ~mix, ~rate      |
+|                              |                                    |
+| LEFT PANEL (fixed 220px)     | RIGHT PANEL (flexible)             |
+| +-------------------------+  | +--------------------------------+ |
+| | CORE                    |  | | Glicol Code          [Reset]   | |
+| |   Dry/Wet    [====]     |  | |            [Update]            | |
+| |   Input      [====]     |  | | +----------------------------+ | |
+| |   Output     [====]     |  | | | out: ~input >> lpf 1000.0  | | |
+| +-------------------------+  | | |   >> plate ~mix            | | |
+| | GLICOL (Use in code)    |  | | +----------------------------+ | |
+| |   ~drive     [====]     |  | | Variables: ~input ~drive ...  | | |
+| |   ~rate      [====]     |  | +--------------------------------+ |
+| |   ~mix       [====]     |  |                                    |
+| |   ~feedback  [====]     |  | [▼ Effects Lab]                    |
+| +-------------------------+  | | RECIPES (click to load)          |
+|                              | | [🎸 Amp] [🌊 Tremolo] [🎚 Filter] |
+|                              | | [▼ BUILDING BLOCKS]              |
+|                              | | Filters: [lpf] [hpf] [onepole]   |
+|                              | | Modulation: [sin] [saw] [squ]    |
 +------------------------------------------------------------------+
 ```
+
+Features:
+- Dark hardware theme (dark grays, accent blue)
+- Collapsible accordion sections
+- Recipe chips with hover tooltips showing code + explanation
+- Building blocks that append to code on click
 
 ---
 
@@ -282,9 +318,10 @@ impl ParamInjector {
 ## Testing Checkpoints
 
 - [x] Phase 1: Plugin loads in DAW, audio passes through
-- [x] Phase 2: `~out: ~input >> mul 0.5` halves volume
-- [x] Phase 3: Use "Overdrive" preset with `~drive` slider, click Update to apply
-- [ ] Phase 4: Save/reload project preserves code and parameters
+- [x] Phase 2: `out: ~input >> mul 0.5` halves volume
+- [x] Phase 3: Use recipe presets with `~drive`/`~rate` sliders, click Update to apply
+- [x] Phase 4A: EQ and Delay modules process audio, bypass toggles work
+- [x] Phase 4A: State persistence - save/reload DAW project preserves code and parameters
 
 ---
 

@@ -683,27 +683,68 @@ struct EditorState {
     status_is_error: bool,
 }
 
-/// Send code update to the audio thread
-fn send_code_update_from_buffer(state: &mut EditorState) {
-    // Basic validation
-    if state.code_buffer.trim().is_empty() {
-        state.status_message = "Error: Code cannot be empty".to_string();
-        state.status_is_error = true;
-        return;
+/// Validate Glicol code before sending
+/// Returns Ok(()) if valid, or Err with a user-friendly message
+fn validate_glicol_code(code: &str) -> Result<Option<String>, String> {
+    let trimmed = code.trim();
+
+    // Check for empty code
+    if trimmed.is_empty() {
+        return Err("Code cannot be empty".to_string());
     }
 
-    // Send to audio thread
-    match state
-        .code_sender
-        .try_send(CodeMessage::UpdateCode(state.code_buffer.clone()))
-    {
-        Ok(_) => {
-            state.status_message = "Code updated!".to_string();
-            state.status_is_error = false;
-        }
-        Err(_) => {
-            state.status_message = "Error: Message queue full".to_string();
+    // Check for output node - must have "out:" (not "~out:")
+    // Allow for whitespace variations like "out :" or "out  :"
+    let has_output = trimmed.lines().any(|line| {
+        let line = line.trim();
+        // Must start with "out" followed by optional whitespace and ":"
+        // But NOT start with "~out"
+        line.starts_with("out") && !line.starts_with("~out") && line.contains(':')
+    });
+
+    if !has_output {
+        return Err("Missing 'out:' - code must define an output node (not ~out:)".to_string());
+    }
+
+    // Warning (not error) if ~input is not referenced
+    let has_input = trimmed.contains("~input");
+    if !has_input {
+        return Ok(Some(
+            "Note: Code doesn't use ~input (live audio)".to_string(),
+        ));
+    }
+
+    Ok(None)
+}
+
+/// Send code update to the audio thread
+fn send_code_update_from_buffer(state: &mut EditorState) {
+    // Validate the code
+    match validate_glicol_code(&state.code_buffer) {
+        Err(error) => {
+            state.status_message = format!("Error: {}", error);
             state.status_is_error = true;
+        }
+        Ok(warning) => {
+            // Send to audio thread
+            match state
+                .code_sender
+                .try_send(CodeMessage::UpdateCode(state.code_buffer.clone()))
+            {
+                Ok(_) => {
+                    if let Some(warn_msg) = warning {
+                        state.status_message = warn_msg;
+                        state.status_is_error = false; // Warning, not error
+                    } else {
+                        state.status_message = "Code updated!".to_string();
+                        state.status_is_error = false;
+                    }
+                }
+                Err(_) => {
+                    state.status_message = "Error: Message queue full".to_string();
+                    state.status_is_error = true;
+                }
+            }
         }
     }
 }

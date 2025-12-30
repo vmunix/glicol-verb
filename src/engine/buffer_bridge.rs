@@ -30,6 +30,10 @@ pub struct BufferBridge {
 
     // Temporary buffer for Glicol processing
     input_block: [f32; GLICOL_BLOCK_SIZE],
+
+    // Underrun tracking
+    underrun_count: u32,
+    samples_since_underrun_log: u32,
 }
 
 impl BufferBridge {
@@ -51,6 +55,8 @@ impl BufferBridge {
             output_right_producer: out_r_prod,
             output_right_consumer: out_r_cons,
             input_block: [0.0; GLICOL_BLOCK_SIZE],
+            underrun_count: 0,
+            samples_since_underrun_log: 0,
         }
     }
 
@@ -97,11 +103,44 @@ impl BufferBridge {
 
     /// Pop a stereo sample pair for DAW output
     /// Returns (left, right), or (0.0, 0.0) if buffer is empty (underrun)
+    /// Tracks underruns and logs periodically (rate-limited to avoid spam)
     #[inline]
     pub fn pop_output(&mut self) -> (f32, f32) {
-        let left = self.output_left_consumer.try_pop().unwrap_or(0.0);
-        let right = self.output_right_consumer.try_pop().unwrap_or(0.0);
-        (left, right)
+        match (
+            self.output_left_consumer.try_pop(),
+            self.output_right_consumer.try_pop(),
+        ) {
+            (Some(left), Some(right)) => (left, right),
+            _ => {
+                // Underrun - one or both channels empty
+                self.underrun_count += 1;
+                self.samples_since_underrun_log += 1;
+
+                // Log underruns periodically (~once per second at 44.1kHz)
+                if self.samples_since_underrun_log >= 44100 {
+                    eprintln!(
+                        "[GlicolVerb] Buffer underrun: {} total underruns",
+                        self.underrun_count
+                    );
+                    self.samples_since_underrun_log = 0;
+                }
+
+                (0.0, 0.0)
+            }
+        }
+    }
+
+    /// Get the total number of underrun samples since last reset
+    #[inline]
+    #[allow(dead_code)]
+    pub fn underrun_count(&self) -> u32 {
+        self.underrun_count
+    }
+
+    /// Reset underrun counter
+    #[allow(dead_code)]
+    pub fn reset_underrun_count(&mut self) {
+        self.underrun_count = 0;
     }
 
     /// Check how many output samples are available
@@ -119,6 +158,8 @@ impl BufferBridge {
         while self.output_left_consumer.try_pop().is_some() {}
         while self.output_right_consumer.try_pop().is_some() {}
         self.input_block = [0.0; GLICOL_BLOCK_SIZE];
+        // Don't reset underrun_count - keep tracking across resets for diagnostics
+        self.samples_since_underrun_log = 0;
     }
 }
 

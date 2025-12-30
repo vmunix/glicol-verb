@@ -35,8 +35,9 @@
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 glicol = "0.13"
-ringbuf = "0.3"
+ringbuf = "0.4"
 parking_lot = "0.12"
+crossbeam-channel = "0.5"  # Thread-safe channels for code messages
 ```
 
 ---
@@ -47,12 +48,22 @@ parking_lot = "0.12"
 ```
 DAW Input (variable: 64-512 samples, mono)
     ↓
+Input Gain (smoothed)
+    ↓
+EQ Module (3-band: low shelf @ 200Hz, mid peak @ 1kHz, high shelf @ 4kHz)
+    ↓
 Input Ring Buffer (2048 samples capacity)
     ↓
 [While buffer >= 128 samples]
     Pop 128 samples → Glicol Engine → Push 128 samples (stereo)
     ↓
 Output Ring Buffers (L/R, 2048 samples each)
+    ↓
+Delay Module (stereo delay with feedback + high-cut filter)
+    ↓
+Dry/Wet Mix
+    ↓
+Output Gain (smoothed)
     ↓
 DAW Output (variable size, stereo)
 ```
@@ -74,14 +85,14 @@ GUI Thread                        Audio Thread
 ### C. Parameter Injection System
 User writes Glicol code referencing named variables:
 ```
-~out: ~input >> mul ~drive >> tanh >> delay ~feedback
+out: ~input >> mul ~drive >> lpf 3000.0 0.5
 ```
 
 The ParamInjector prepends definitions based on current slider values:
 ```
 ~drive: sig 2.5
-~feedback: sig 0.3
-~out: ~input >> mul ~drive >> tanh >> delay ~feedback
+~rate: sig 1.0
+out: ~input >> mul ~drive >> lpf 3000.0 0.5
 ```
 
 This approach:
@@ -89,6 +100,34 @@ This approach:
 - Makes adding new parameters trivial (add FloatParam + injection line)
 - Allows DAW automation of parameters
 - Parameters smoothed at sample rate for click-free changes
+
+### D. DSP Module Framework
+
+Native Rust DSP modules process audio before/after the Glicol engine:
+
+```rust
+pub type StereoSample = (f32, f32);
+
+pub trait DspModule {
+    fn process(&mut self, input: StereoSample) -> StereoSample;
+    fn set_sample_rate(&mut self, sample_rate: f32);
+    fn reset(&mut self);
+    fn set_bypass(&mut self, bypass: bool);
+    fn is_bypassed(&self) -> bool;
+}
+```
+
+**EQ Module** (`src/dsp/eq.rs`):
+- 3-band parametric EQ using biquad filters
+- Low shelf (20-500 Hz, ±12 dB)
+- Mid peak (200-8000 Hz, ±12 dB, Q 0.5-4.0)
+- High shelf (2000-20000 Hz, ±12 dB)
+
+**Delay Module** (`src/dsp/delay.rs`):
+- Stereo delay with circular buffer (up to 2 seconds)
+- Feedback (0-95%)
+- High-cut filter for tape-like warmth
+- Wet/dry mix control
 
 ---
 
@@ -196,41 +235,63 @@ Reference: https://nih-plug.robbertvanderhelm.nl/
 | Parameter | ID | Range | Suggested Use |
 |-----------|-----|-------|---------------|
 | Knob 1-4 | `knob1`-`knob4` | 0.0-1.0 | General purpose |
-| Drive | `drive` | 0.1-10.0 | Distortion amount |
-| Feedback | `feedback` | 0.0-0.99 | Delay feedback |
+| Drive | `drive` | 1.0-10.0 | Distortion amount |
+| Feedback | `feedback` | 0.0-0.95 | Delay feedback |
 | Mix | `mix` | 0.0-1.0 | Effect mix |
-| Rate | `rate` | 0.1-20.0 | LFO/modulation rate |
+| Rate | `rate` | 0.1-20.0 | LFO/modulation rate (Hz) |
+
+### EQ Module Parameters
+| Parameter | ID | Range | Description |
+|-----------|-----|-------|-------------|
+| EQ Bypass | `eq_bypass` | bool | Bypass EQ processing |
+| Low Freq | `eq_low_freq` | 20-500 Hz | Low shelf frequency |
+| Low Gain | `eq_low_gain` | ±12 dB | Low shelf gain |
+| Mid Freq | `eq_mid_freq` | 200-8000 Hz | Mid peak frequency |
+| Mid Gain | `eq_mid_gain` | ±12 dB | Mid peak gain |
+| Mid Q | `eq_mid_q` | 0.5-4.0 | Mid peak Q (bandwidth) |
+| High Freq | `eq_high_freq` | 2000-20000 Hz | High shelf frequency |
+| High Gain | `eq_high_gain` | ±12 dB | High shelf gain |
+
+### Delay Module Parameters
+| Parameter | ID | Range | Description |
+|-----------|-----|-------|-------------|
+| Delay Bypass | `delay_bypass` | bool | Bypass delay processing |
+| Delay Time | `delay_time` | 1-2000 ms | Delay time |
+| Delay Feedback | `delay_feedback` | 0-95% | Feedback amount |
+| Delay Mix | `delay_mix` | 0-100% | Wet/dry mix |
+| Delay High-Cut | `delay_highcut` | 1000-20000 Hz | High-cut filter frequency |
 
 ---
 
 ## 8. Example Glicol Code
 
+**Note**: Use `out:` (no tilde) for the output chain. `~out:` creates a reference that doesn't connect to output!
+
 ### Pass-through
 ```
-~out: ~input
+out: ~input
 ```
 
 ### Simple Distortion
 ```
-~out: ~input >> mul ~drive >> tanh >> mul 0.5
+out: ~input >> mul ~drive >> lpf 3000.0 0.5
 ```
 
 ### Delay with Feedback
 ```
-~delay: ~input >> delay 0.3 >> mul ~feedback
-~out: ~input >> add ~delay
+out: ~input >> delayms 250.0 >> mul 0.6 >> add ~input
 ```
 
 ### Tremolo
 ```
+out: ~input >> mul ~lfo
 ~lfo: sin ~rate >> mul 0.5 >> add 0.5
-~out: ~input >> mul ~lfo
 ```
 
-### Chorus-like Effect
+### Filter Sweep (Auto-Wah)
 ```
-~mod: sin ~rate >> mul 0.002 >> add 0.01
-~out: ~input >> delayms ~mod >> mul ~mix >> add ~input
+out: ~input >> lpf ~freq 0.7
+~freq: sin ~rate >> mul 2000.0 >> add 2500.0
 ```
 
 ---
