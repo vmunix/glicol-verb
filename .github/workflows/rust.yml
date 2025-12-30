@@ -21,7 +21,10 @@ jobs:
     - name: Install Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libx11-dev libxcursor-dev libxcb1-dev libxcb-icccm4-dev libxcb-keysyms1-dev libasound2-dev libgl1-mesa-dev
+        sudo apt-get install -y \
+          libx11-dev libx11-xcb-dev libxcursor-dev libxcb1-dev \
+          libxcb-icccm4-dev libxcb-keysyms1-dev libxcb-render0-dev \
+          libasound2-dev libgl1-mesa-dev pkg-config
     - name: Cache Cargo registry and build
       uses: actions/cache@v4
       with:
