@@ -333,4 +333,18 @@ impl Vst3Plugin for GlicolVerb {
     ];
 }
 
+impl ClapPlugin for GlicolVerb {
+    const CLAP_ID: &'static str = "com.glicol-verb.glicol-verb";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Live-coding guitar effects pedal");
+    const CLAP_MANUAL_URL: Option<&'static str> = None;
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Filter,
+        ClapFeature::Distortion,
+        ClapFeature::Delay,
+    ];
+}
+
 nih_export_vst3!(GlicolVerb);
+nih_export_clap!(GlicolVerb);
