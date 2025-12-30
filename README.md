@@ -1,6 +1,6 @@
 # GlicolVerb
 
-A Glicol live-coding VST3 plugin built with Rust and
+A Glicol live-coding VST3/CLAP plugin built with Rust and
 [NIH-plug](https://github.com/robbert-vdh/nih-plug). Write
 [Glicol](https://glicol.org) DSP code, click "Update", and hear changes
 instantly.
