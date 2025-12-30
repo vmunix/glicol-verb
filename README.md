@@ -11,6 +11,9 @@ progress!
 
 ## Status
 
+<img width="900" height="598" alt="SCR-20251230-kdtc" src="https://github.com/user-attachments/assets/2655d4d5-8344-43ca-8e66-bfe8229edf27" />
+
+
 Phase 2 complete - live coding with Glicol engine and GUI work! Try effects like:
 - `out: ~input >> mul 0.5` - halve volume
 - `out: ~input >> lpf 1000.0 1.0` - low-pass filter
