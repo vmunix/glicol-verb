@@ -290,21 +290,21 @@ When making changes, verify:
 ## Future Enhancements
 
 ### High Priority
-- **Real-time parameter updates**: Currently params only apply on "Update" click
-- **Syntax highlighting**: Custom egui widget with Glicol keyword highlighting
-- **Better error messages**: Parse Glicol errors for user-friendly feedback
+- [ ] **Real-time parameter updates**: Currently params only apply on "Update" click
+- [ ] **Syntax highlighting**: Custom egui widget with Glicol keyword highlighting
+- [ ] **Better error messages**: Parse Glicol errors for user-friendly feedback
 
 ### Medium Priority
-- **Preset system**: Save/load code + parameter combinations
-- **MIDI mapping**: Map MIDI CC to parameters
-- **Undo/redo**: Code editor history
-- **Automated releases**: GitHub Actions workflow to build VST3/CLAP for macOS/Windows/Linux on tagged releases, attach as release assets
-- **GitHub Pages site**: Simple download page hosted at `vmunix.github.io/glicol-verb` with install instructions and demo
+- [ ] **Preset system**: Save/load code + parameter combinations
+- [ ] **MIDI mapping**: Map MIDI CC to parameters
+- [ ] **Undo/redo**: Code editor history
+- [ ] **Automated releases**: GitHub Actions workflow to build VST3/CLAP for macOS/Windows/Linux on tagged releases, attach as release assets
+- [ ] **GitHub Pages site**: Simple download page hosted at `vmunix.github.io/glicol-verb` with install instructions and demo
 
 ### Lower Priority
-- **Stereo input**: Process L/R independently
-- **Visualization**: Waveform/spectrum display
-- **Custom distortion node**: Native tanh/clip since Glicol lacks it
+- [ ] **Stereo input**: Process L/R independently
+- [ ] **Visualization**: Waveform/spectrum display
+- [ ] **Custom distortion node**: Native tanh/clip since Glicol lacks it
 
 ---
 
