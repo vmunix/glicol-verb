@@ -62,10 +62,10 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/bundled
-          for dir in *.vst3 *.clap; do
-            if [ -d "$dir" ]; then
-              zip -r "../glicol_verb-${{ github.ref_name }}-${{ matrix.name }}-${dir##*.}.zip" "$dir"
-            fi
+          for item in *.vst3 *.clap; do
+            [ -e "$item" ] || continue
+            ext="${item##*.}"
+            zip -r "../glicol_verb-${{ github.ref_name }}-${{ matrix.name }}-${ext}.zip" "$item"
           done
 
       - name: Create archives (Windows)
@@ -73,11 +73,11 @@ jobs:
         shell: pwsh
         run: |
           cd target/bundled
-          Get-ChildItem -Directory | ForEach-Object {
-            $ext = $_.Extension.TrimStart('.')
-            if ($ext -eq '') { $ext = $_.Name.Split('.')[-1] }
-            $zipName = "glicol_verb-${{ github.ref_name }}-${{ matrix.name }}-$ext.zip"
-            Compress-Archive -Path $_.FullName -DestinationPath "../$zipName"
+          Get-ChildItem -Filter "*.vst3" | ForEach-Object {
+            Compress-Archive -Path $_.FullName -DestinationPath "../glicol_verb-${{ github.ref_name }}-${{ matrix.name }}-vst3.zip"
+          }
+          Get-ChildItem -Filter "*.clap" | ForEach-Object {
+            Compress-Archive -Path $_.FullName -DestinationPath "../glicol_verb-${{ github.ref_name }}-${{ matrix.name }}-clap.zip"
           }
 
       - name: Upload artifacts
