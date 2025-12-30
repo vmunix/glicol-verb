@@ -298,6 +298,8 @@ When making changes, verify:
 - **Preset system**: Save/load code + parameter combinations
 - **MIDI mapping**: Map MIDI CC to parameters
 - **Undo/redo**: Code editor history
+- **Automated releases**: GitHub Actions workflow to build VST3/CLAP for macOS/Windows/Linux on tagged releases, attach as release assets
+- **GitHub Pages site**: Simple download page hosted at `vmunix.github.io/glicol-verb` with install instructions and demo
 
 ### Lower Priority
 - **Stereo input**: Process L/R independently
